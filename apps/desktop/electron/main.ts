@@ -17,6 +17,7 @@ import {
 	nativeTheme,
 	protocol,
 	screen,
+	session,
 	shell,
 } from "electron";
 import electronUpdater from "electron-updater";
@@ -26,15 +27,26 @@ import type {
 	DesktopUpdateState,
 	DirectoryListing,
 	MenuState,
+	SearchFileResult,
 	WorkspaceConfig,
 } from "../src/desktopApi/types";
 import {
-	hasDocumentExtension,
+	fileKindForPath,
 	hasMarkdownExtension,
+	isEditableFile,
 	isHiddenSidebarFolderName,
+	isVisibleSidebarFileName,
 	markdownAssetFolderPath,
 	withMarkdownExtension,
 } from "../src/lib/filePath";
+import {
+	findMatchesInContent,
+	SEARCH_CONCURRENCY,
+	SEARCH_MAX_FILE_BYTES,
+	SEARCH_MAX_RESULT_FILES,
+	SEARCH_MIN_QUERY_LENGTH,
+} from "../src/lib/searchContent";
+import { TelemetryManager } from "./telemetry";
 import { setupTerminalIpc } from "./terminal";
 import {
 	loadZoomFactor,
@@ -85,6 +97,8 @@ const appName = devAppName ?? "Hubble";
 const debugPort = process.env.HUBBLE_DESKTOP_DEBUG_PORT ?? "9222";
 const updateFeedUrl = process.env.HUBBLE_DESKTOP_UPDATE_URL;
 const supportsAutoUpdates = !isDev && process.platform === "darwin";
+const updateCheckErrorMessage =
+	"Couldn't check for updates. Try again shortly.";
 // Check every 4 hours after the initial packaged-app update check.
 const updateCheckIntervalMs = 4 * 60 * 60 * 1000;
 
@@ -105,6 +119,15 @@ app.setName(appName);
 if (devAppName) {
 	app.setPath("userData", path.join(app.getPath("appData"), devAppName));
 }
+const telemetry = new TelemetryManager({
+	statePath: path.join(app.getPath("userData"), "telemetry.json"),
+	endpoint:
+		process.env.HUBBLE_PLAUSIBLE_ENDPOINT ?? "https://plausible.io/api/event",
+	domain: process.env.HUBBLE_PLAUSIBLE_DOMAIN ?? "hubble.md",
+	canSend: app.isPackaged && process.env.HUBBLE_TELEMETRY_DISABLED !== "1",
+	version: app.getVersion(),
+	userAgent: () => session.defaultSession.getUserAgent(),
+});
 
 if (isDev && process.env.HUBBLE_DESKTOP_ENABLE_CDP === "1") {
 	app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
@@ -132,8 +155,10 @@ const launchWorkspacePath =
 		: null;
 let menuState: MenuState = {
 	hasWorkspace: false,
-	hasMarkdownNoteOpen: false,
+	hasSourceViewOpen: false,
 	isSourceMode: false,
+	canGoBack: false,
+	canGoForward: false,
 };
 let updateState: DesktopUpdateState = {
 	isSupported: supportsAutoUpdates,
@@ -150,6 +175,9 @@ const watchers = new Map<string, FSWatcher>();
 const grantedFiles = new Set<string>();
 const grantedRoots = new Set<string>();
 let grantsLoaded = false;
+// An AbortSignal cannot cross IPC, so a superseded search is abandoned by
+// comparing its id against the newest one between files.
+let latestSearchRequestId = 0;
 
 const ignoreConfigFiles = [".gitignore", ".ignore"];
 const ignoredWorkspaceDirs = new Set([".git", "dist", "node_modules"]);
@@ -178,6 +206,13 @@ const windowStateSchema = z.object({
 	isMaximized: z.boolean().optional(),
 	isFullScreen: z.boolean().optional(),
 });
+const openAgentClientSchema = z
+	.object({
+		client: z.enum(["codex", "claude"]),
+		prompt: z.string(),
+		workspacePath: z.string().trim().min(1),
+	})
+	.strict();
 const htmlAppHeadStyles = [
 	{ name: "hubble-theme", source: htmlAppTheme },
 ] as const;
@@ -458,10 +493,6 @@ function isIgnoredByRules(candidatePath: string, rules: IgnoreRule[]) {
 	return ignored;
 }
 
-function isDocumentPath(candidatePath: string): boolean {
-	return hasDocumentExtension(candidatePath);
-}
-
 function isMissingPathError(error: unknown): boolean {
 	return (
 		typeof error === "object" &&
@@ -607,6 +638,7 @@ function assetContentType(filePath: string): string {
 	switch (path.extname(filePath).toLowerCase()) {
 		case ".css":
 			return "text/css; charset=utf-8";
+		case ".htm":
 		case ".html":
 			return "text/html; charset=utf-8";
 		case ".js":
@@ -619,10 +651,20 @@ function assetContentType(filePath: string): string {
 		case ".jpg":
 		case ".jpeg":
 			return "image/jpeg";
+		case ".avif":
+			return "image/avif";
+		case ".bmp":
+			return "image/bmp";
+		case ".gif":
+			return "image/gif";
+		case ".ico":
+			return "image/x-icon";
 		case ".png":
 			return "image/png";
 		case ".webp":
 			return "image/webp";
+		case ".pdf":
+			return "application/pdf";
 		default:
 			return "application/octet-stream";
 	}
@@ -657,14 +699,24 @@ function injectHtmlAppRuntime(html: string): string {
 
 function responseForAsset(filePath: string) {
 	const contentType = assetContentType(filePath);
-	const body = contentType.startsWith("text/html")
+	const isHtml = contentType.startsWith("text/html");
+	const body = isHtml
 		? injectHtmlAppRuntime(fsSync.readFileSync(filePath, "utf8"))
 		: fsSync.readFileSync(filePath);
+
+	// Keep scriptable documents sandboxed even when a frame (e.g. the PDF
+	// viewer) navigates to them directly. <img> SVG rendering is unaffected.
+	const cspSandbox = isHtml
+		? "sandbox allow-scripts allow-forms"
+		: contentType === "image/svg+xml"
+			? "sandbox"
+			: null;
 
 	return new Response(body, {
 		headers: {
 			"cache-control": "no-store",
 			"content-type": contentType,
+			...(cspSandbox ? { "content-security-policy": cspSandbox } : {}),
 		},
 	});
 }
@@ -702,8 +754,28 @@ function buildTextContextMenu(
 	webContents: Electron.WebContents,
 	params: Electron.ContextMenuParams,
 ) {
+	const spellingItems: Electron.MenuItemConstructorOptions[] =
+		params.misspelledWord.length > 0
+			? [
+					...(params.dictionarySuggestions.length > 0
+						? params.dictionarySuggestions.map((suggestion) => ({
+								label: suggestion,
+								click: () => webContents.replaceMisspelling(suggestion),
+							}))
+						: [{ label: "No Guesses Found", enabled: false }]),
+					{
+						label: "Add to Dictionary",
+						click: () =>
+							webContents.session.addWordToSpellCheckerDictionary(
+								params.misspelledWord,
+							),
+					},
+					{ type: "separator" },
+				]
+			: [];
+
 	// In source mode the text is already markdown, so plain copy covers it.
-	const template: Electron.MenuItemConstructorOptions[] = textContextMenuItems
+	const editItems: Electron.MenuItemConstructorOptions[] = textContextMenuItems
 		.filter(
 			(item) =>
 				!(
@@ -727,13 +799,17 @@ function buildTextContextMenu(
 					},
 		);
 
-	return Menu.buildFromTemplate(template);
+	return Menu.buildFromTemplate([...spellingItems, ...editItems]);
 }
 
 function registerTextContextMenu(window: BrowserWindow) {
 	window.webContents.on("context-menu", (_event, params) => {
 		if (!params.isEditable) return;
-		buildTextContextMenu(window.webContents, params).popup({ window });
+		buildTextContextMenu(window.webContents, params).popup({
+			window,
+			// macOS needs the originating frame to attach Writing Tools and text services.
+			frame: params.frame ?? undefined,
+		});
 	});
 }
 
@@ -775,6 +851,14 @@ function buildMenu() {
 				},
 				{ type: "separator" },
 				{
+					id: "go-to-file",
+					label: "Go to File...",
+					accelerator: "CmdOrCtrl+P",
+					enabled: menuState.hasWorkspace,
+					click: () => sendToRenderer("desktop:menu-go-to-file"),
+				},
+				{ type: "separator" },
+				{
 					id: "sync-workspace",
 					label: "Sync Workspace",
 					enabled: menuState.hasWorkspace,
@@ -807,6 +891,21 @@ function buildMenu() {
 			label: "View",
 			submenu: [
 				{
+					id: "go-back",
+					label: "Go Back",
+					accelerator: "CmdOrCtrl+[",
+					enabled: menuState.canGoBack,
+					click: () => sendToRenderer("desktop:menu-go-back"),
+				},
+				{
+					id: "go-forward",
+					label: "Go Forward",
+					accelerator: "CmdOrCtrl+]",
+					enabled: menuState.canGoForward,
+					click: () => sendToRenderer("desktop:menu-go-forward"),
+				},
+				{ type: "separator" },
+				{
 					id: "zoom-in",
 					label: "Zoom In",
 					accelerator: "CmdOrCtrl+=",
@@ -836,7 +935,7 @@ function buildMenu() {
 					id: "toggle-source-mode",
 					label: "Toggle Source Mode",
 					accelerator: "Alt+CmdOrCtrl+U",
-					enabled: menuState.hasMarkdownNoteOpen,
+					enabled: menuState.hasSourceViewOpen,
 					click: () => sendToRenderer("desktop:menu-toggle-source-mode"),
 				},
 				...(isDev
@@ -848,6 +947,16 @@ function buildMenu() {
 							{ role: "toggleDevTools" },
 						] satisfies Electron.MenuItemConstructorOptions[])
 					: []),
+			],
+		},
+		{
+			label: "Help",
+			submenu: [
+				{
+					id: "whats-new",
+					label: "See what's new",
+					click: () => sendToRenderer("desktop:menu-open-changelog"),
+				},
 			],
 		},
 	];
@@ -919,9 +1028,10 @@ async function checkForUpdates() {
 	try {
 		await autoUpdater.checkForUpdates();
 	} catch (error) {
+		console.error("Auto-update check failed", error);
 		patchUpdateState({
 			status: "error",
-			message: error instanceof Error ? error.message : String(error),
+			message: updateCheckErrorMessage,
 			lastCheckedAt: Date.now(),
 		});
 	}
@@ -975,7 +1085,7 @@ function configureAutoUpdates() {
 		console.error("Auto-update error", error);
 		patchUpdateState({
 			status: "error",
-			message: error.message,
+			message: updateCheckErrorMessage,
 			lastCheckedAt: Date.now(),
 		});
 	});
@@ -1028,7 +1138,7 @@ function fileAssetsDir(filePath: string): string {
 	return assetsDir;
 }
 
-async function collectDocumentFiles(
+async function collectSidebarFiles(
 	dir: string,
 	out: DirectoryListing,
 	inheritedRules: IgnoreRule[] = [],
@@ -1045,12 +1155,13 @@ async function collectDocumentFiles(
 				path: toRendererPath(entryPath),
 				modified_at: Math.floor(stat.mtimeMs / 1000),
 			});
-			await collectDocumentFiles(entryPath, out, rules);
-		} else if (isDocumentPath(entry.name)) {
+			await collectSidebarFiles(entryPath, out, rules);
+		} else if (entry.isFile() && isVisibleSidebarFileName(entry.name)) {
 			const stat = await fs.stat(entryPath);
 			out.files.push({
 				path: toRendererPath(entryPath),
 				modified_at: Math.floor(stat.mtimeMs / 1000),
+				kind: fileKindForPath(entry.name),
 			});
 		}
 	}
@@ -1130,11 +1241,31 @@ async function createWindow() {
 		webPreferences: {
 			contextIsolation: true,
 			nodeIntegration: false,
+			plugins: true,
 			preload: path.join(__dirname, "../preload/preload.mjs"),
 			sandbox: false,
 		},
 	});
 	mainWindow = window;
+	// Viewer content must never navigate the window or open new ones; external
+	// links go through shell IPC. Unlike will-navigate, this covers subframes.
+	window.webContents.on("will-frame-navigate", (details) => {
+		if (details.isMainFrame) {
+			// Same-URL navigations are dev HMR reloads.
+			if (details.url !== window.webContents.getURL()) details.preventDefault();
+			return;
+		}
+		// Subframes load app assets only; chrome-extension is Chromium's
+		// internal PDF viewer taking over the frame.
+		if (
+			!details.url.startsWith("hubble-asset://") &&
+			!details.url.startsWith("chrome-extension://") &&
+			details.url !== "about:blank"
+		) {
+			details.preventDefault();
+		}
+	});
+	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	registerTextContextMenu(window);
 	if (windowState.isFullScreen) {
 		window.setFullScreen(true);
@@ -1198,7 +1329,7 @@ function registerIpc() {
 			const stat = await fs.stat(root);
 			if (!stat.isDirectory()) throw new Error(`Not a directory: ${dirPath}`);
 			const listing: DirectoryListing = { files: [], folders: [] };
-			await collectDocumentFiles(root, listing);
+			await collectSidebarFiles(root, listing);
 			return listing;
 		},
 	);
@@ -1255,6 +1386,71 @@ function registerIpc() {
 		async (_event, { path: filePath }) => {
 			const resolved = assertGranted(filePath);
 			return await fs.readFile(resolved, "utf8");
+		},
+	);
+
+	ipcMain.handle(
+		"desktop:search-file-contents",
+		async (_event, { requestId, paths, query }) => {
+			latestSearchRequestId = requestId;
+			const needle = String(query ?? "").trim();
+			const empty = { requestId, results: [], truncated: false };
+			if (needle.length < SEARCH_MIN_QUERY_LENGTH) return empty;
+
+			// The renderer hands us the sidebar snapshot's paths, so search sees
+			// exactly what the sidebar sees (ADR-0008) and main never re-walks.
+			const candidates = (paths as string[]).filter(hasMarkdownExtension);
+			const results: SearchFileResult[] = [];
+			const isStale = () => requestId !== latestSearchRequestId;
+			let cursor = 0;
+			let capped = false;
+
+			async function worker() {
+				while (true) {
+					if (isStale()) return;
+					if (results.length >= SEARCH_MAX_RESULT_FILES) {
+						capped = true;
+						return;
+					}
+					const index = cursor;
+					cursor += 1;
+					if (index >= candidates.length) return;
+
+					const candidate = candidates[index];
+					try {
+						const resolved = assertGranted(candidate);
+						const stat = await fs.stat(resolved);
+						if (!stat.isFile() || stat.size > SEARCH_MAX_FILE_BYTES) continue;
+						const content = await fs.readFile(resolved, "utf8");
+						const matches = findMatchesInContent(content, needle);
+						if (matches.length > 0) results.push({ path: candidate, matches });
+					} catch {}
+				}
+			}
+
+			await Promise.all(
+				Array.from(
+					{ length: Math.min(SEARCH_CONCURRENCY, candidates.length) },
+					worker,
+				),
+			);
+			if (isStale()) return empty;
+
+			return {
+				requestId,
+				// The worker pool finishes out of order; sort so equal-ranked results
+				// do not jitter between keystrokes.
+				results: results
+					.slice(0, SEARCH_MAX_RESULT_FILES)
+					.sort((a, b) => a.path.localeCompare(b.path)),
+				// Workers can push a few past the cap between awaits; the slice hides
+				// them, so they must count as truncation. `capped` alone is not
+				// enough of a signal in the other direction: a scan that finished
+				// with exactly the cap dropped nothing.
+				truncated:
+					(capped && cursor < candidates.length) ||
+					results.length > SEARCH_MAX_RESULT_FILES,
+			};
 		},
 	);
 
@@ -1399,10 +1595,12 @@ function registerIpc() {
 				typeof options.defaultPath === "string"
 					? options.defaultPath
 					: undefined,
-			title: "Open Markdown file",
+			title: "Open file",
 			filters: [
 				{ name: "Documents", extensions: ["md", "markdown", "mdown", "html"] },
 				{ name: "Text", extensions: ["txt", "text"] },
+				{ name: "PDF", extensions: ["pdf"] },
+				{ name: "All Files", extensions: ["*"] },
 			],
 		});
 		const selected = result.filePaths[0] ?? null;
@@ -1486,7 +1684,7 @@ function registerIpc() {
 					depth: 0,
 				});
 				const emitFile = (changedPath: string) => {
-					if (isDocumentPath(changedPath)) {
+					if (isEditableFile(changedPath)) {
 						emit(changedPath);
 					}
 				};
@@ -1520,17 +1718,48 @@ function registerIpc() {
 		await shell.openExternal(url);
 	});
 
+	ipcMain.handle("desktop:open-agent-client", async (_event, input) => {
+		const { client, prompt, workspacePath } =
+			openAgentClientSchema.parse(input);
+		const resolvedWorkspacePath = assertGranted(workspacePath);
+		if (!(await fs.stat(resolvedWorkspacePath)).isDirectory()) {
+			throw new Error(`Not a directory: ${workspacePath}`);
+		}
+
+		// Build the custom-protocol URL here so the renderer cannot choose an
+		// arbitrary external scheme or workspace outside its granted scope.
+		const url = new URL(
+			client === "codex" ? "codex://threads/new" : "claude://code/new",
+		);
+		url.searchParams.set(client === "codex" ? "prompt" : "q", prompt);
+		url.searchParams.set(
+			client === "codex" ? "path" : "folder",
+			resolvedWorkspacePath,
+		);
+		await shell.openExternal(url.href);
+	});
+
 	ipcMain.handle("desktop:open-path-from-link", async (_event, { path }) => {
 		const resolved = await assertGrantedOrConfirmFile(path);
-		if (hasMarkdownExtension(resolved)) {
+		if (fileKindForPath(resolved) !== "external") {
 			if (!(await pathExistsAsFile(resolved))) {
 				throw new Error("FILE_NOT_FOUND");
 			}
-			return { kind: "markdown", path: toRendererPath(resolved) };
+			return { kind: "file", path: toRendererPath(resolved) };
 		}
-		await shell.openPath(resolved);
+		const openError = await shell.openPath(resolved);
+		if (openError) throw new Error(openError);
 		return { kind: "opened" };
 	});
+
+	ipcMain.handle(
+		"desktop:open-path-in-default-app",
+		async (_event, { path }) => {
+			const resolved = assertGranted(path);
+			const error = await shell.openPath(resolved);
+			if (error) throw new Error(error);
+		},
+	);
 
 	ipcMain.handle("desktop:reveal-file", (_event, { path: filePath }) => {
 		shell.showItemInFolder(assertGranted(filePath));
@@ -1555,6 +1784,16 @@ function registerIpc() {
 	);
 
 	ipcMain.handle("desktop:get-update-state", () => updateState);
+	ipcMain.handle("desktop:get-telemetry-consent", () => telemetry.getConsent());
+	ipcMain.handle("desktop:set-telemetry-consent", (_event, { consent }) => {
+		if (consent !== "enabled" && consent !== "declined") {
+			throw new Error("Invalid telemetry consent");
+		}
+		return telemetry.setConsent(consent);
+	});
+	ipcMain.handle("desktop:record-telemetry-activity", (_event, input) =>
+		telemetry.recordActivity(input?.usedHtmlApp === true),
+	);
 
 	ipcMain.handle(
 		"desktop:get-fullscreen",
@@ -1575,8 +1814,10 @@ function registerIpc() {
 	ipcMain.handle("desktop:set-menu-state", (_event, state: MenuState) => {
 		menuState = {
 			hasWorkspace: state.hasWorkspace === true,
-			hasMarkdownNoteOpen: state.hasMarkdownNoteOpen === true,
+			hasSourceViewOpen: state.hasSourceViewOpen === true,
 			isSourceMode: state.isSourceMode === true,
+			canGoBack: state.canGoBack === true,
+			canGoForward: state.canGoForward === true,
 		};
 		buildMenu();
 	});
@@ -1617,7 +1858,13 @@ if (!singleInstanceLock) {
 		sendToRenderer("desktop:open-file", toRendererPath(resolved));
 	});
 
+	// "Desktop Active" means the app was used that day (TELEMETRY.md): launch
+	// covers the first day, focus covers sessions left open across midnight.
+	app.on("browser-window-focus", () => void telemetry.recordActivity(false));
+
 	app.whenReady().then(async () => {
+		await telemetry.load();
+		void telemetry.recordActivity(false);
 		await loadGrants();
 		if (launchWorkspacePath) grantRoot(launchWorkspacePath);
 		await saveGrants();

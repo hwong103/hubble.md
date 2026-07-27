@@ -1,9 +1,15 @@
+import type { FileKind } from "../lib/filePath";
+
 export type FileEntry = {
 	path: string;
 	modified_at: number;
+	kind: FileKind;
 };
 
-export type FolderEntry = FileEntry;
+export type FolderEntry = {
+	path: string;
+	modified_at: number;
+};
 
 export type DirectoryListing = {
 	files: FileEntry[];
@@ -15,6 +21,35 @@ export type HtmlAppFileEntry = {
 	path: string;
 	modified_at: number;
 	size: number;
+};
+
+export type SearchContentMatch = {
+	/** 1-indexed line number within the file. */
+	line: number;
+	/** Trimmed line, windowed around the match, with ellipses when clipped. */
+	excerpt: string;
+	matchStart: number;
+	matchEnd: number;
+};
+
+export type SearchFileResult = {
+	path: string;
+	matches: SearchContentMatch[];
+};
+
+export type SearchFileContentsInput = {
+	/** Monotonic per-renderer id. Main abandons a search once it is superseded. */
+	requestId: number;
+	/** Candidate paths, taken from the sidebar snapshot. Main never re-walks. */
+	paths: string[];
+	query: string;
+};
+
+export type SearchFileContentsOutput = {
+	requestId: number;
+	results: SearchFileResult[];
+	/** True when the file cap was hit before every candidate was scanned. */
+	truncated: boolean;
 };
 
 export type PersistPastedImageInput = {
@@ -29,8 +64,16 @@ export type PersistPastedImageOutput = {
 };
 
 export type OpenPathFromLinkResult =
-	| { kind: "markdown"; path: string }
+	| { kind: "file"; path: string }
 	| { kind: "opened" };
+
+export type AgentClient = "codex" | "claude";
+
+export type OpenAgentClientInput = {
+	client: AgentClient;
+	prompt: string;
+	workspacePath: string;
+};
 
 export type WatchOptions = {
 	recursive: boolean;
@@ -40,8 +83,10 @@ export type Unsubscribe = () => void;
 
 export type MenuState = {
 	hasWorkspace: boolean;
-	hasMarkdownNoteOpen: boolean;
+	hasSourceViewOpen: boolean;
 	isSourceMode: boolean;
+	canGoBack: boolean;
+	canGoForward: boolean;
 };
 
 export type DesktopUpdateStatus =
@@ -63,6 +108,9 @@ export type DesktopUpdateState = {
 };
 
 export type DesktopPlatform = NodeJS.Platform;
+
+export type TelemetryChoice = "enabled" | "declined";
+export type TelemetryConsent = TelemetryChoice | "unset";
 
 export type TerminalStartOptions = {
 	notePath?: string;
@@ -88,6 +136,9 @@ export type DesktopApi = {
 		config: WorkspaceConfig,
 	): Promise<void>;
 	readFileText(path: string): Promise<string>;
+	searchFileContents(
+		input: SearchFileContentsInput,
+	): Promise<SearchFileContentsOutput>;
 	detectHubbleSkills(workspacePath: string): Promise<boolean>;
 	writeFileText(path: string, content: string): Promise<void>;
 	createFolder(path: string): Promise<void>;
@@ -111,7 +162,9 @@ export type DesktopApi = {
 		callback: (paths: string[]) => void,
 	): Promise<Unsubscribe>;
 	openExternalUrl(url: string): Promise<void>;
+	openAgentClient(input: OpenAgentClientInput): Promise<void>;
 	openPathFromLink(path: string): Promise<OpenPathFromLinkResult>;
+	openPathInDefaultApp(path: string): Promise<void>;
 	revealFile(path: string): Promise<void>;
 	resolvePath(path: string): Promise<string>;
 	realPath(path: string): Promise<string>;
@@ -120,6 +173,9 @@ export type DesktopApi = {
 	getLaunchWorkspacePath(): Promise<string | null>;
 	setMenuState(state: MenuState): Promise<void>;
 	getUpdateState(): Promise<DesktopUpdateState>;
+	getTelemetryConsent(): Promise<TelemetryConsent>;
+	setTelemetryConsent(consent: TelemetryChoice): Promise<TelemetryConsent>;
+	recordTelemetryActivity(input: { usedHtmlApp: boolean }): Promise<void>;
 	getFullScreen(): Promise<boolean>;
 	checkForUpdates(): Promise<void>;
 	installUpdate(): Promise<void>;
@@ -132,10 +188,14 @@ export type DesktopApi = {
 	onMenuOpenFile(callback: () => void): Unsubscribe;
 	onMenuOpenFolder(callback: () => void): Unsubscribe;
 	onMenuOpenSettings(callback: () => void): Unsubscribe;
+	onMenuOpenChangelog(callback: () => void): Unsubscribe;
 	onMenuCopyAsMarkdown(callback: () => void): Unsubscribe;
 	onMenuShowWorkspaceSwitcher(callback: () => void): Unsubscribe;
+	onMenuGoToFile(callback: () => void): Unsubscribe;
 	onMenuSyncWorkspace(callback: () => void): Unsubscribe;
 	onMenuToggleTerminal(callback: () => void): Unsubscribe;
+	onMenuGoBack(callback: () => void): Unsubscribe;
+	onMenuGoForward(callback: () => void): Unsubscribe;
 	onMenuToggleSourceMode(callback: () => void): Unsubscribe;
 	onWindowFocus(callback: () => void): Unsubscribe;
 	onFullScreenChange(callback: (isFullScreen: boolean) => void): Unsubscribe;
