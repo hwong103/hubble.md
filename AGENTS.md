@@ -14,6 +14,15 @@ Comments aren't evil. Use doc comments on complex functions, or inline comments 
 
 GitHub Issues on `bholmesdev/hubble.md` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
+### GitHub account
+
+One account owns a piece of work: the issue and the PR that fixes it are
+authored by the same account. `gh` picks an account on its own and can
+change partway through a session, so resolve it before writing and name it
+explicitly with `GH_TOKEN=$(gh auth token --user <account>)` when it is not
+the one you want. Use `hwong103` for this repo. See
+`docs/agents/issue-tracker.md`.
+
 ### Triage labels
 
 Defaults: `needs-triage`, `ready-to-implement`, `needs-discussion`, `wontfix`. See `docs/agents/triage-labels.md`.
