@@ -2,8 +2,13 @@ import type { Editor } from "@tiptap/core";
 import Document from "@tiptap/extension-document";
 import { EditorContent, type JSONContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { HubbleCodeBlock } from "./CodeBlockExtension";
+import {
+	flushPendingSave,
+	type PendingSave,
+	schedulePendingSave,
+} from "./pendingSave";
 import "./EditorView.css";
 
 const DEFAULT_SAVE_DEBOUNCE_MS = 120;
@@ -12,6 +17,9 @@ const SourceDocument = Document.extend({ content: "codeBlock" });
 export type MarkdownSourceEditorProps = {
 	path: string;
 	initialMarkdown: string;
+	sourceLanguage?: string;
+	/** Focus on mount; wanted for the source-mode toggle, not for navigation. */
+	autoFocus?: boolean;
 	saveDebounceMs?: number;
 	onLocalChange: (path: string, markdown: string) => void;
 	onSave: (path: string, markdown: string) => void | Promise<void>;
@@ -21,6 +29,8 @@ export type MarkdownSourceEditorProps = {
 export function MarkdownSourceEditor({
 	path,
 	initialMarkdown,
+	sourceLanguage = "md",
+	autoFocus = true,
 	saveDebounceMs = DEFAULT_SAVE_DEBOUNCE_MS,
 	onLocalChange,
 	onSave,
@@ -28,33 +38,32 @@ export function MarkdownSourceEditor({
 }: MarkdownSourceEditorProps) {
 	const pathRef = useRef(path);
 	const latestMarkdownRef = useRef(initialMarkdown);
-	const saveTimerRef = useRef<number | null>(null);
-	pathRef.current = path;
+	const pendingSaveRef = useRef<PendingSave | null>(null);
+	useLayoutEffect(() => {
+		pathRef.current = path;
+	}, [path]);
 
-	const setEditorViewport = useCallback(
-		(node: HTMLDivElement | null) => {
-			onScrollContainerChange?.(node);
-		},
-		[onScrollContainerChange],
-	);
+	const setEditorViewport = (node: HTMLDivElement | null) => {
+		onScrollContainerChange?.(node);
+	};
 
-	const scheduleSave = useCallback(() => {
-		const savePath = pathRef.current;
-		if (saveTimerRef.current !== null) {
-			window.clearTimeout(saveTimerRef.current);
-		}
-		saveTimerRef.current = window.setTimeout(() => {
-			void onSave(savePath, latestMarkdownRef.current);
-		}, saveDebounceMs);
-	}, [onSave, saveDebounceMs]);
+	const scheduleSave = () => {
+		schedulePendingSave({
+			delay: saveDebounceMs,
+			markdown: latestMarkdownRef.current,
+			path: pathRef.current,
+			ref: pendingSaveRef,
+			save: onSave,
+		});
+	};
 
 	const editor = useEditor({
 		extensions: [
 			SourceDocument,
 			StarterKit.configure({ codeBlock: false, document: false }),
-			HubbleCodeBlock.configure({ defaultLanguage: "md" }),
+			HubbleCodeBlock.configure({ defaultLanguage: sourceLanguage }),
 		],
-		content: sourceDocFromMarkdown(initialMarkdown),
+		content: sourceDocFromMarkdown(initialMarkdown, sourceLanguage),
 		onUpdate: ({ editor: current }) => {
 			const markdown = markdownFromSourceDoc(current);
 			latestMarkdownRef.current = markdown;
@@ -64,34 +73,42 @@ export function MarkdownSourceEditor({
 		editorProps: {
 			attributes: {
 				"data-editor-input": "",
-				"aria-label": "Markdown source",
+				"aria-label":
+					sourceLanguage === "html"
+						? "HTML source"
+						: sourceLanguage === "text"
+							? "Text editor"
+							: sourceLanguage === "md"
+								? "Markdown source"
+								: "Code editor",
 			},
 		},
 	});
 
 	useEffect(() => {
-		if (!editor) return;
+		if (!editor || !autoFocus) return;
 		editor.commands.focus("end");
-	}, [editor]);
+	}, [editor, autoFocus]);
 
 	useEffect(() => {
 		if (!editor) return;
 		if (initialMarkdown === latestMarkdownRef.current) return;
 		latestMarkdownRef.current = initialMarkdown;
-		editor.commands.setContent(sourceDocFromMarkdown(initialMarkdown), {
-			emitUpdate: false,
-		});
-	}, [editor, initialMarkdown]);
+		editor.commands.setContent(
+			sourceDocFromMarkdown(initialMarkdown, sourceLanguage),
+			{
+				emitUpdate: false,
+			},
+		);
+	}, [editor, initialMarkdown, sourceLanguage]);
 
 	useEffect(() => {
+		// Path changes flush the pending edit before the next document takes over.
+		void path;
 		return () => {
-			if (saveTimerRef.current !== null) {
-				window.clearTimeout(saveTimerRef.current);
-				saveTimerRef.current = null;
-				void onSave(path, latestMarkdownRef.current);
-			}
+			flushPendingSave(pendingSaveRef);
 		};
-	}, [path, onSave]);
+	}, [path]);
 
 	return (
 		<div
@@ -109,13 +126,16 @@ export function MarkdownSourceEditor({
 	);
 }
 
-export function sourceDocFromMarkdown(markdown: string): JSONContent {
+export function sourceDocFromMarkdown(
+	markdown: string,
+	language = "md",
+): JSONContent {
 	return {
 		type: "doc",
 		content: [
 			{
 				type: "codeBlock",
-				attrs: { language: "md" },
+				attrs: { language },
 				content: markdown.length > 0 ? [{ type: "text", text: markdown }] : [],
 			},
 		],

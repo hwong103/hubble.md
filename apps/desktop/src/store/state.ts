@@ -1,5 +1,7 @@
+import type { ReviewThread } from "@hubble.md/ui";
 import { store } from "@simplestack/store";
 import type { FileAction } from "../externalFileChange";
+import type { FileKind } from "../lib/filePath";
 import { localStoragePersist } from "../lib/localStoragePersist";
 import {
 	type DesktopState,
@@ -13,9 +15,13 @@ export type SortMode = "alpha" | "recent";
 export type FileEntry = {
 	path: string;
 	modified_at: number;
+	kind?: FileKind;
 };
 
-export type FolderEntry = FileEntry;
+export type FolderEntry = {
+	path: string;
+	modified_at: number;
+};
 
 type ViewerStatus = "idle" | "loading" | "ready" | "error";
 export type ViewMode = "rich" | "source";
@@ -38,6 +44,17 @@ const NO_CONFLICT: ExternalChange = { kind: "none" };
 
 export const MAX_RECENT = 10;
 export const LOADING_DELAY_MS = 150;
+export const MAX_HISTORY = 50;
+
+export type HistoryStack = {
+	entries: string[];
+	index: number;
+};
+
+export type HistoryState = {
+	byWorkspace: Record<string, HistoryStack>;
+	isNavigating: boolean;
+};
 
 export const emptyDoc = (
 	lastOpenedPath: string | null = null,
@@ -143,6 +160,14 @@ export const appStore = store<DesktopState>(getInitialState(), {
 	middleware: [localStoragePersist(STORAGE_KEY, serialize)],
 });
 
+export const historyStore = store<HistoryState>({
+	byWorkspace: {},
+	isNavigating: false,
+});
+
+// Derived from the open document, so it stays out of the persisted app store
+export const reviewThreadsStore = store<ReviewThread[]>([]);
+
 export const workspaceStore = appStore.select("workspace");
 export const viewerStore = appStore.select("document");
 export const uiStore = appStore.select("ui");
@@ -160,3 +185,9 @@ export const pendingTerminalCommandStore = uiStore.select(
 export const chatCommandStore = appStore
 	.select("settings")
 	.select("chatCommand");
+export const codeFileOpenModeStore = appStore
+	.select("settings")
+	.select("codeFileOpenMode");
+export const lastSeenVersionStore = appStore
+	.select("settings")
+	.select("lastSeenVersion");

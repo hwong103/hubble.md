@@ -9,10 +9,52 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 
 ### Added
 
-- Linux desktop builds now ship an RPM package alongside the existing AppImage and deb, for install on Fedora/RHEL/openSUSE and other RPM-based distros. Thanks [@ricardoraposo](https://github.com/ricardoraposo)! [#151](https://github.com/bholmesdev/hubble.md/pull/151)
-- Dark mode: the desktop app, editor (including code-block syntax highlighting), and embedded HTML apps now follow your system appearance. Thanks [@saucy-tech](https://github.com/saucy-tech)! [#110](https://github.com/bholmesdev/hubble.md/issues/110)
+- Open the current note in Codex or Claude from the note actions menu, with the workspace and note path already filled in. [#188](https://github.com/bholmesdev/hubble.md/pull/188)
+- Browse every workspace file, edit plain text and code, view PDFs and images in Hubble, and open any file in its default app. Thanks [@zcuric](https://github.com/zcuric) for the suggestion! [#183](https://github.com/bholmesdev/hubble.md/pull/183)
+- Hubble now collects anonymous usage data to help improve the app, with a clear notice and a Settings toggle to opt out. See [TELEMETRY.md](https://github.com/bholmesdev/hubble.md/blob/main/TELEMETRY.md) for what's collected. [#182](https://github.com/bholmesdev/hubble.md/pull/182)
+- Leave review comments on a note: highlight text to start a thread, reply to it, and resolve it when it's handled. Comments live in the Markdown itself, so they travel with the file. Thanks [@hwong103](https://github.com/hwong103)! [#175](https://github.com/bholmesdev/hubble.md/pull/175)
+- Browse every comment in a note from the toolbar, filter by unresolved or resolved, and copy a prompt handing the open threads to your agent. For the best results, install the [review-markdown-comments skill](https://github.com/bholmesdev/hubble-skills/blob/main/skills/review-markdown-comments/SKILL.md) with `npx skills add bholmesdev/hubble-skills --skill review-markdown-comments`, so your agent knows how to reply and resolve them. Thanks [@hwong103](https://github.com/hwong103)! [#175](https://github.com/bholmesdev/hubble.md/pull/175)
 
 ### Changed
+
+### Fixed
+
+## [0.1.21] - 2026-07-18
+
+### Added
+
+- HTML Apps can use `./` and `../` paths to access Markdown files relative to the app. [#177](https://github.com/bholmesdev/hubble.md/pull/177)
+
+### Changed
+
+- Workspaces with the same folder name now show their parent paths in the workspace switcher, making them easier to distinguish. Thanks [@hwong103](https://github.com/hwong103) for the suggestion! [#181](https://github.com/bholmesdev/hubble.md/pull/181)
+- HTML Apps can now be edited in source mode from the file menu or keyboard shortcut. [#178](https://github.com/bholmesdev/hubble.md/pull/178)
+- Editor blocks now use a consistent reading rhythm, with tighter list grouping and clearer heading separation. [f6c44a2](https://github.com/bholmesdev/hubble.md/commit/f6c44a2)
+
+### Fixed
+
+- Switching between notes now keeps navigation controls stable and saves pending edits to the correct file. [#167](https://github.com/bholmesdev/hubble.md/pull/167)
+
+## [0.1.20] - 2026-07-12
+
+### Added
+
+- Global search: press Cmd+P (or File → Go to File…) to find notes by name, by path, or by a phrase inside them. Results show a matching excerpt, and selecting one opens the note. Thanks [@zcuric](https://github.com/zcuric)! [#159](https://github.com/bholmesdev/hubble.md/pull/159)
+- Pin, unpin, or trash multiple sidebar items at once, including with Cmd+Delete. [#129](https://github.com/bholmesdev/hubble.md/pull/129)
+- Added a button to view the changelog after an update. Revisit the changelog anytime from Help or Settings. [#163](https://github.com/bholmesdev/hubble.md/pull/163)
+
+### Fixed
+
+- macOS text context menus now include Writing Tools, text services, and spelling suggestions. Thanks [@noahpatterson](https://github.com/noahpatterson) for the suggestion! [#164](https://github.com/bholmesdev/hubble.md/pull/164)
+- Update-check failures now show a concise, unobtrusive message instead of a raw error trace.
+
+## [0.1.19] - 2026-07-11
+
+### Added
+
+- Linux desktop builds now ship an RPM package alongside the existing AppImage and deb, for install on Fedora/RHEL/openSUSE and other RPM-based distros. Thanks [@ricardoraposo](https://github.com/ricardoraposo)! [#151](https://github.com/bholmesdev/hubble.md/pull/151)
+- Dark mode: the desktop app, editor (including code-block syntax highlighting), and embedded HTML apps now follow your system appearance. Thanks [@saucy-tech](https://github.com/saucy-tech)! [#110](https://github.com/bholmesdev/hubble.md/issues/110)
+- Go back and forward between recently opened files: use the toolbar arrows, Cmd+[ and Cmd+], or the View menu. History is kept per workspace and follows files through renames, moves, and deletes. [#154](https://github.com/bholmesdev/hubble.md/pull/154)
 
 ### Fixed
 

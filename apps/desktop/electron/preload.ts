@@ -30,6 +30,8 @@ const desktopApi = {
 		}),
 	readFileText: (path) =>
 		ipcRenderer.invoke("desktop:read-file-text", { path }),
+	searchFileContents: (input) =>
+		ipcRenderer.invoke("desktop:search-file-contents", input),
 	detectHubbleSkills: (workspacePath) =>
 		ipcRenderer.invoke("desktop:detect-hubble-skills", { workspacePath }),
 	writeFileText: (path, content) => {
@@ -73,8 +75,12 @@ const desktopApi = {
 	},
 	openExternalUrl: (url) =>
 		ipcRenderer.invoke("desktop:open-external-url", { url }),
+	openAgentClient: (input) =>
+		ipcRenderer.invoke("desktop:open-agent-client", input),
 	openPathFromLink: (path) =>
 		ipcRenderer.invoke("desktop:open-path-from-link", { path }),
+	openPathInDefaultApp: (path) =>
+		ipcRenderer.invoke("desktop:open-path-in-default-app", { path }),
 	revealFile: (path) => ipcRenderer.invoke("desktop:reveal-file", { path }),
 	resolvePath: (path) => ipcRenderer.invoke("desktop:resolve-path", { path }),
 	realPath: (path) => ipcRenderer.invoke("desktop:real-path", { path }),
@@ -85,6 +91,12 @@ const desktopApi = {
 		ipcRenderer.invoke("desktop:get-launch-workspace-path"),
 	setMenuState: (state) => ipcRenderer.invoke("desktop:set-menu-state", state),
 	getUpdateState: () => ipcRenderer.invoke("desktop:get-update-state"),
+	getTelemetryConsent: () =>
+		ipcRenderer.invoke("desktop:get-telemetry-consent"),
+	setTelemetryConsent: (consent) =>
+		ipcRenderer.invoke("desktop:set-telemetry-consent", { consent }),
+	recordTelemetryActivity: (input) =>
+		ipcRenderer.invoke("desktop:record-telemetry-activity", input),
 	getFullScreen: () => ipcRenderer.invoke("desktop:get-fullscreen"),
 	checkForUpdates: () => ipcRenderer.invoke("desktop:check-for-updates"),
 	installUpdate: () => ipcRenderer.invoke("desktop:install-update"),
@@ -101,14 +113,19 @@ const desktopApi = {
 		subscribe("desktop:menu-open-folder", callback),
 	onMenuOpenSettings: (callback) =>
 		subscribe("desktop:menu-open-settings", callback),
+	onMenuOpenChangelog: (callback) =>
+		subscribe("desktop:menu-open-changelog", callback),
 	onMenuCopyAsMarkdown: (callback) =>
 		subscribe("desktop:menu-copy-as-markdown", callback),
 	onMenuShowWorkspaceSwitcher: (callback) =>
 		subscribe("desktop:menu-show-workspace-switcher", callback),
+	onMenuGoToFile: (callback) => subscribe("desktop:menu-go-to-file", callback),
 	onMenuSyncWorkspace: (callback) =>
 		subscribe("desktop:menu-sync-workspace", callback),
 	onMenuToggleTerminal: (callback) =>
 		subscribe("desktop:menu-toggle-terminal", callback),
+	onMenuGoBack: (callback) => subscribe("desktop:menu-go-back", callback),
+	onMenuGoForward: (callback) => subscribe("desktop:menu-go-forward", callback),
 	onMenuToggleSourceMode: (callback) =>
 		subscribe("desktop:menu-toggle-source-mode", callback),
 	onWindowFocus: (callback) => subscribe("desktop:window-focus", callback),

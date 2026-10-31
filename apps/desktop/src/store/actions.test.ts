@@ -10,6 +10,8 @@ type MockDesktopApi = {
 	renameFile: ReturnType<typeof vi.fn>;
 	deleteFile: ReturnType<typeof vi.fn>;
 	pathExists: ReturnType<typeof vi.fn>;
+	openPathFromLink: ReturnType<typeof vi.fn>;
+	openPathInDefaultApp: ReturnType<typeof vi.fn>;
 };
 
 function createDesktopApi(): MockDesktopApi {
@@ -23,6 +25,8 @@ function createDesktopApi(): MockDesktopApi {
 		renameFile: vi.fn(async () => {}),
 		deleteFile: vi.fn(async () => {}),
 		pathExists: vi.fn(async () => false),
+		openPathFromLink: vi.fn(async () => ({ kind: "opened" })),
+		openPathInDefaultApp: vi.fn(async () => {}),
 	};
 }
 
@@ -30,10 +34,13 @@ function createDesktopApi(): MockDesktopApi {
  * Actions capture window.desktopApi at import time, so each test stubs globals
  * before importing the store modules.
  */
-async function loadStoreActions(api: MockDesktopApi) {
+async function loadStoreActions(
+	api: MockDesktopApi,
+	persisted: string | null = null,
+) {
 	vi.resetModules();
 	vi.stubGlobal("localStorage", {
-		getItem: vi.fn(() => null),
+		getItem: vi.fn(() => persisted),
 		setItem: vi.fn(),
 	});
 	vi.stubGlobal("window", {
@@ -43,8 +50,9 @@ async function loadStoreActions(api: MockDesktopApi) {
 	});
 
 	const actions = await import("./actions");
+	const history = await import("./history");
 	const state = await import("./state");
-	return { ...actions, ...state };
+	return { ...actions, ...history, ...state };
 }
 
 describe("desktop savePathContent", () => {
@@ -67,6 +75,32 @@ describe("desktop savePathContent", () => {
 			STORAGE_KEY,
 			expect.stringContaining('"chatCommand":"codex exec"'),
 		);
+	});
+
+	it("defaults code files to Hubble and persists the external-app preference", async () => {
+		const api = createDesktopApi();
+		const { codeFileOpenModeStore, setCodeFileOpenMode } =
+			await loadStoreActions(api);
+		const { STORAGE_KEY } = await import("./persistence");
+
+		expect(codeFileOpenModeStore.get()).toBe("hubble");
+		setCodeFileOpenMode("default-app");
+
+		expect(codeFileOpenModeStore.get()).toBe("default-app");
+		expect(localStorage.setItem).toHaveBeenLastCalledWith(
+			STORAGE_KEY,
+			expect.stringContaining('"codeFileOpenMode":"default-app"'),
+		);
+	});
+
+	it("hydrates the code-file preference", async () => {
+		const api = createDesktopApi();
+		const { codeFileOpenModeStore } = await loadStoreActions(
+			api,
+			JSON.stringify({ settings: { codeFileOpenMode: "default-app" } }),
+		);
+
+		expect(codeFileOpenModeStore.get()).toBe("default-app");
 	});
 
 	it("requests chat with the default command when the setting is blank", async () => {
@@ -310,6 +344,30 @@ describe("desktop renameMarkdownFile", () => {
 		expect(viewerStore.get().content).toBe("embed content");
 		expect(workspaceStore.get().lastOpenedPaths["/workspace"]).toBe(
 			"/workspace/renamed.md",
+		);
+	});
+
+	it("preserves the existing extension and dotted stem suffixes", async () => {
+		const api = createDesktopApi();
+		const { renameMarkdownFile } = await loadStoreActions(api);
+
+		await renameMarkdownFile("/workspace/manual.pdf", "guide.v2");
+
+		expect(api.renameFile).toHaveBeenCalledWith(
+			"/workspace/manual.pdf",
+			"/workspace/guide.v2.pdf",
+		);
+	});
+
+	it("renames extensionless files without erasing the filename", async () => {
+		const api = createDesktopApi();
+		const { renameMarkdownFile } = await loadStoreActions(api);
+
+		await renameMarkdownFile("/workspace/LICENSE", "README");
+
+		expect(api.renameFile).toHaveBeenCalledWith(
+			"/workspace/LICENSE",
+			"/workspace/README",
 		);
 	});
 
@@ -984,6 +1042,378 @@ describe("desktop moveSidebarItem", () => {
 describe("desktop loadPath", () => {
 	beforeEach(() => {
 		vi.unstubAllGlobals();
+	});
+
+	it("tracks back and forward history through successful opens", async () => {
+		const api = createDesktopApi();
+		api.pathExists.mockResolvedValue(true);
+		api.readFileText.mockImplementation(
+			async (path: string) => `content:${path}`,
+		);
+		const {
+			canGoBack,
+			canGoForward,
+			goBack,
+			goForward,
+			loadPath,
+			viewerStore,
+		} = await loadStoreActions(api);
+
+		await loadPath("/workspace/a.md");
+		await loadPath("/workspace/b.md");
+		await loadPath("/workspace/c.md");
+
+		expect(canGoBack()).toBe(true);
+		expect(canGoForward()).toBe(false);
+
+		await goBack();
+
+		expect(viewerStore.get().currentPath).toBe("/workspace/b.md");
+		expect(viewerStore.get().content).toBe("content:/workspace/b.md");
+		expect(canGoBack()).toBe(true);
+		expect(canGoForward()).toBe(true);
+
+		await goForward();
+
+		expect(viewerStore.get().currentPath).toBe("/workspace/c.md");
+		expect(canGoForward()).toBe(false);
+	});
+
+	it("opens PDFs without decoding or writing their bytes as text", async () => {
+		const api = createDesktopApi();
+		api.pathExists.mockResolvedValue(true);
+		const { loadPath, savePathContent, viewerStore } =
+			await loadStoreActions(api);
+
+		await loadPath("/workspace/manual.pdf");
+		await savePathContent("/workspace/manual.pdf", "", { force: true });
+
+		expect(viewerStore.get().currentPath).toBe("/workspace/manual.pdf");
+		expect(api.readFileText).not.toHaveBeenCalled();
+		expect(api.writeFileText).not.toHaveBeenCalled();
+	});
+
+	it("opens external-only files without replacing the current document", async () => {
+		const api = createDesktopApi();
+		const { loadPath, viewerStore } = await loadStoreActions(api);
+		await loadPath("/workspace/note.md");
+
+		await loadPath("/workspace/archive.zip");
+
+		expect(api.openPathFromLink).toHaveBeenCalledWith("/workspace/archive.zip");
+		expect(viewerStore.get().currentPath).toBe("/workspace/note.md");
+	});
+
+	it("does not cancel an in-flight document when opening an external file", async () => {
+		const api = createDesktopApi();
+		let resolveRead: ((content: string) => void) | undefined;
+		api.readFileText.mockImplementation(
+			() =>
+				new Promise<string>((resolve) => {
+					resolveRead = resolve;
+				}),
+		);
+		const { loadPath, viewerStore } = await loadStoreActions(api);
+
+		const documentLoad = loadPath("/workspace/note.md");
+		await loadPath("/workspace/archive.zip");
+		resolveRead?.("loaded note");
+		await documentLoad;
+
+		expect(viewerStore.get()).toMatchObject({
+			currentPath: "/workspace/note.md",
+			content: "loaded note",
+			status: "ready",
+		});
+	});
+
+	it("opens images in Hubble without decoding them as text", async () => {
+		const api = createDesktopApi();
+		api.pathExists.mockResolvedValue(true);
+		const { loadPath, viewerStore } = await loadStoreActions(api);
+
+		await loadPath("/workspace/image.png");
+
+		expect(viewerStore.get().currentPath).toBe("/workspace/image.png");
+		expect(api.readFileText).not.toHaveBeenCalled();
+		expect(api.openPathFromLink).not.toHaveBeenCalled();
+	});
+
+	it("opens code in Hubble by default", async () => {
+		const api = createDesktopApi();
+		api.readFileText.mockResolvedValue("export const value = 1;");
+		const { loadPath, viewerStore } = await loadStoreActions(api);
+
+		await loadPath("/workspace/app.ts");
+
+		expect(viewerStore.get()).toMatchObject({
+			currentPath: "/workspace/app.ts",
+			content: "export const value = 1;",
+		});
+	});
+
+	it("opens code in the default app when preferred", async () => {
+		const api = createDesktopApi();
+		const { loadPath, setCodeFileOpenMode, viewerStore } =
+			await loadStoreActions(api);
+		await loadPath("/workspace/note.md");
+		setCodeFileOpenMode("default-app");
+
+		await loadPath("/workspace/app.ts");
+
+		expect(api.openPathInDefaultApp).toHaveBeenCalledWith("/workspace/app.ts");
+		expect(viewerStore.get().currentPath).toBe("/workspace/note.md");
+	});
+
+	it("keeps code in Hubble when external launches are suppressed", async () => {
+		const api = createDesktopApi();
+		api.readFileText.mockResolvedValue("export const value = 1;");
+		const { loadPath, setCodeFileOpenMode, viewerStore } =
+			await loadStoreActions(api);
+		setCodeFileOpenMode("default-app");
+
+		await loadPath("/workspace/app.ts", { launchExternal: false });
+
+		expect(api.openPathInDefaultApp).not.toHaveBeenCalled();
+		expect(viewerStore.get().currentPath).toBe("/workspace/app.ts");
+	});
+
+	it("keeps history navigation inside Hubble for code files", async () => {
+		const api = createDesktopApi();
+		api.pathExists.mockResolvedValue(true);
+		api.readFileText.mockResolvedValue("content");
+		const { goBack, loadPath, setCodeFileOpenMode, viewerStore } =
+			await loadStoreActions(api);
+		await loadPath("/workspace/app.ts");
+		await loadPath("/workspace/note.md");
+		setCodeFileOpenMode("default-app");
+
+		await goBack();
+
+		expect(api.openPathInDefaultApp).not.toHaveBeenCalled();
+		expect(viewerStore.get().currentPath).toBe("/workspace/app.ts");
+	});
+
+	it("treats wasm binaries as external files", async () => {
+		const api = createDesktopApi();
+		const { loadPath, viewerStore } = await loadStoreActions(api);
+
+		await loadPath("/workspace/module.wasm");
+
+		expect(api.readFileText).not.toHaveBeenCalled();
+		expect(api.openPathFromLink).toHaveBeenCalledWith("/workspace/module.wasm");
+		expect(viewerStore.get().currentPath).toBeNull();
+	});
+
+	it("opens text files in rich mode", async () => {
+		const api = createDesktopApi();
+		api.readFileText.mockResolvedValue("plain text");
+		const { loadPath, viewerStore } = await loadStoreActions(api);
+
+		await loadPath("/workspace/readme.txt");
+
+		expect(viewerStore.get()).toMatchObject({
+			currentPath: "/workspace/readme.txt",
+			content: "plain text",
+			viewMode: "rich",
+		});
+	});
+
+	it("keeps history availability stable while blocking concurrent navigation", async () => {
+		const api = createDesktopApi();
+		api.readFileText.mockImplementation(
+			async (path: string) => `content:${path}`,
+		);
+		let resolvePathExists: ((exists: boolean) => void) | undefined;
+		api.pathExists.mockImplementation(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolvePathExists = resolve;
+				}),
+		);
+		const {
+			canGoBack,
+			canGoForward,
+			goBack,
+			historyStore,
+			loadPath,
+			viewerStore,
+		} = await loadStoreActions(api);
+
+		await loadPath("/workspace/a.md");
+		await loadPath("/workspace/b.md");
+		await loadPath("/workspace/c.md");
+
+		const firstNavigation = goBack();
+		await vi.waitFor(() => expect(historyStore.get().isNavigating).toBe(true));
+		expect(canGoBack()).toBe(true);
+		expect(canGoForward()).toBe(false);
+		await goBack();
+		expect(api.pathExists).toHaveBeenCalledTimes(1);
+
+		resolvePathExists?.(true);
+		await firstNavigation;
+		expect(viewerStore.get().currentPath).toBe("/workspace/b.md");
+	});
+
+	it("stays on the current file when opening a missing file fails", async () => {
+		const api = createDesktopApi();
+		api.pathExists.mockResolvedValue(true);
+		api.readFileText.mockImplementation(async (path: string) => {
+			if (path === "/workspace/missing.md") {
+				throw new Error("ENOENT: no such file or directory");
+			}
+			return `content:${path}`;
+		});
+		const { canGoBack, canGoForward, goBack, loadPath, viewerStore } =
+			await loadStoreActions(api);
+
+		await loadPath("/workspace/a.md");
+		await loadPath("/workspace/b.md");
+		await loadPath("/workspace/missing.md");
+
+		expect(viewerStore.get().currentPath).toBe("/workspace/b.md");
+		expect(viewerStore.get().content).toBe("content:/workspace/b.md");
+		expect(viewerStore.get().status).toBe("ready");
+		expect(canGoBack()).toBe(true);
+		expect(canGoForward()).toBe(false);
+
+		await goBack();
+
+		expect(viewerStore.get().currentPath).toBe("/workspace/a.md");
+	});
+
+	it("truncates forward history when a new file opens after going back", async () => {
+		const api = createDesktopApi();
+		api.pathExists.mockResolvedValue(true);
+		api.readFileText.mockImplementation(
+			async (path: string) => `content:${path}`,
+		);
+		const { canGoForward, goBack, loadPath, viewerStore } =
+			await loadStoreActions(api);
+
+		await loadPath("/workspace/a.md");
+		await loadPath("/workspace/b.md");
+		await loadPath("/workspace/c.md");
+		await goBack();
+		await loadPath("/workspace/d.md");
+
+		expect(viewerStore.get().currentPath).toBe("/workspace/d.md");
+		expect(canGoForward()).toBe(false);
+	});
+
+	it("keeps navigation history separate per workspace", async () => {
+		const api = createDesktopApi();
+		api.pathExists.mockResolvedValue(true);
+		api.readFileText.mockImplementation(
+			async (path: string) => `content:${path}`,
+		);
+		const { appStore, canGoBack, loadPath } = await loadStoreActions(api);
+
+		appStore.set((current) => ({
+			...current,
+			workspace: { ...current.workspace, workspacePath: "/workspace-a" },
+		}));
+		await loadPath("/workspace-a/a.md");
+		await loadPath("/workspace-a/b.md");
+		expect(canGoBack()).toBe(true);
+
+		appStore.set((current) => ({
+			...current,
+			workspace: { ...current.workspace, workspacePath: "/workspace-b" },
+		}));
+
+		expect(canGoBack()).toBe(false);
+	});
+
+	it("saves dirty content before navigating history", async () => {
+		const api = createDesktopApi();
+		api.pathExists.mockResolvedValue(true);
+		api.readFileText.mockImplementation(
+			async (path: string) => `content:${path}`,
+		);
+		const { goBack, loadPath, updateEditorContent } =
+			await loadStoreActions(api);
+
+		await loadPath("/workspace/a.md");
+		await loadPath("/workspace/b.md");
+		updateEditorContent("/workspace/b.md", "dirty");
+
+		await goBack();
+
+		expect(api.writeFileText).toHaveBeenCalledWith("/workspace/b.md", "dirty");
+	});
+
+	it("blocks history navigation while the current file has a disk conflict", async () => {
+		const api = createDesktopApi();
+		api.pathExists.mockResolvedValue(true);
+		api.readFileText.mockImplementation(
+			async (path: string) => `content:${path}`,
+		);
+		const { appStore, goBack, loadPath, viewerStore } =
+			await loadStoreActions(api);
+
+		await loadPath("/workspace/a.md");
+		await loadPath("/workspace/b.md");
+		appStore.set((current) => ({
+			...current,
+			document: {
+				...current.document,
+				externalChange: { kind: "conflict", diskContent: "disk" },
+			},
+		}));
+
+		await goBack();
+
+		expect(viewerStore.get().currentPath).toBe("/workspace/b.md");
+	});
+
+	it("silently clears a missing restore path without toasting", async () => {
+		const api = createDesktopApi();
+		const missingPath = "/workspace/missing.md";
+		api.readFileText.mockRejectedValue(
+			new Error(`ENOENT: no such file or directory, open '${missingPath}'`),
+		);
+		const toastError = vi.fn();
+		vi.doMock("sonner", () => ({ toast: { error: toastError } }));
+		const { appStore, loadPath, viewerStore } = await loadStoreActions(api);
+
+		appStore.set((current) => ({
+			...current,
+			workspace: {
+				...current.workspace,
+				workspacePath: "/workspace",
+				lastOpenedPaths: { "/workspace": missingPath },
+			},
+			document: {
+				...current.document,
+				lastOpenedPath: missingPath,
+			},
+		}));
+
+		await loadPath(missingPath, { missing: "silent" });
+
+		expect(viewerStore.get().currentPath).toBeNull();
+		expect(viewerStore.get().status).toBe("idle");
+		expect(viewerStore.get().lastOpenedPath).toBeNull();
+		expect(appStore.get().workspace.lastOpenedPaths).toEqual({});
+		expect(toastError).not.toHaveBeenCalled();
+	});
+
+	it("does not push history when reloading a renamed current file", async () => {
+		const api = createDesktopApi();
+		api.pathExists.mockResolvedValue(true);
+		api.readFileText.mockImplementation(
+			async (path: string) => `content:${path}`,
+		);
+		const { canGoBack, loadPath, viewerStore } = await loadStoreActions(api);
+
+		await loadPath("/workspace/a.md");
+		await loadPath("/workspace/b.md");
+		await loadPath("/workspace/b-renamed.md", { history: "none" });
+
+		expect(viewerStore.get().currentPath).toBe("/workspace/b-renamed.md");
+		expect(canGoBack()).toBe(true);
 	});
 
 	it("refreshes the sidebar when a selected file no longer exists", async () => {

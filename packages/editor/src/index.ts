@@ -1,3 +1,4 @@
+export { ContextMenuSpellcheckExtension } from "./ContextMenuSpellcheckExtension";
 export { FakeSelectionExtension } from "./FakeSelectionExtension";
 export {
 	FindExtension,
@@ -21,6 +22,7 @@ export {
 	setMarkdownFrontMatter,
 } from "./frontMatter";
 export { HeadingExtension } from "./Heading";
+export { InlineCodeExtension } from "./InlineCode";
 export {
 	createLinkMark,
 	getActiveLinkRange,
@@ -50,6 +52,14 @@ export {
 	selectionToMarkdown,
 	tiptapDocToMarkdown,
 } from "./prosemirrorToMarkdown";
+export {
+	parseReviewMetadata,
+	type ReviewMarkAttrs,
+	ReviewMarkExtension,
+	type ReviewMarkName,
+	type ReviewReply,
+	serializeReviewMetadata,
+} from "./ReviewMark";
 export {
 	createRichTextClipboardSerializer,
 	RichTextClipboardExtension,
