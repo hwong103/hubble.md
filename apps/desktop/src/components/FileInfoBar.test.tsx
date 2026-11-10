@@ -51,38 +51,28 @@ describe("SourceModeToggle", () => {
 		);
 	}
 
-	it("shows the active editor view and switches in either direction", async () => {
+	it("uses one destination-labeled button and switches in either direction", async () => {
 		const onChange = vi.fn();
 		await renderSourceModeToggle("rich", onChange);
 
-		const buttons = Array.from(
-			container.querySelectorAll<HTMLButtonElement>("button"),
+		let button = container.querySelector<HTMLButtonElement>(
+			"[data-editor-view-toggle]",
 		);
-		expect(
-			buttons.map((button) => [
-				button.textContent,
-				button.getAttribute("aria-pressed"),
-			]),
-		).toEqual([
-			["Rich text", "true"],
-			["Markdown", "false"],
-		]);
+		expect(container.querySelectorAll("button")).toHaveLength(1);
+		expect(button?.getAttribute("aria-label")).toBe("Edit source");
+		expect(button?.title).toBe("Edit source");
 
-		await act(async () => buttons[1]?.click());
+		await act(async () => button?.click());
 		expect(onChange).toHaveBeenCalledWith("source");
 
 		await renderSourceModeToggle("source", onChange);
-		expect(
-			container
-				.querySelector('[aria-label="Markdown"]')
-				?.getAttribute("aria-pressed"),
-		).toBe("true");
-
-		await act(async () =>
-			container
-				.querySelector<HTMLButtonElement>('[aria-label="Rich text"]')
-				?.click(),
+		button = container.querySelector<HTMLButtonElement>(
+			"[data-editor-view-toggle]",
 		);
+		expect(button?.getAttribute("aria-label")).toBe("Edit rich text");
+		expect(button?.title).toBe("Edit rich text");
+
+		await act(async () => button?.click());
 		expect(onChange).toHaveBeenNthCalledWith(2, "rich");
 	});
 });

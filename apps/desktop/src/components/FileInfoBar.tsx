@@ -40,7 +40,6 @@ import {
 } from "../lib/filePath";
 import { useCompactWindow } from "../lib/layout";
 import { revealFileLabel } from "../lib/revealFile";
-import { cn } from "../lib/utils";
 import {
 	deleteSidebarItems,
 	goBack,
@@ -173,11 +172,7 @@ export function FileInfoBar({
 					<div data-file-info-actions className="flex items-center gap-1">
 						{comments ? <ReviewCommentSummary {...comments} /> : null}
 						{showEditorViewToggle ? (
-							<SourceModeToggle
-								viewMode={viewMode}
-								onChange={setViewerMode}
-								compact={compact}
-							/>
+							<SourceModeToggle viewMode={viewMode} onChange={setViewerMode} />
 						) : null}
 						<ActionsMenu
 							path={actionPath}
@@ -212,55 +207,27 @@ export function FileInfoBar({
 	);
 }
 
-const sourceModeOptions = [
-	{
-		value: "rich",
-		label: "Rich text",
-		Icon: MingcuteTextLine,
-	},
-	{
-		value: "source",
-		label: "Markdown",
-		Icon: MingcuteCodeLine,
-	},
-] as const;
-
 export function SourceModeToggle({
 	viewMode,
 	onChange,
-	compact = false,
 }: {
 	viewMode: ViewMode;
 	onChange: (viewMode: ViewMode) => void;
-	compact?: boolean;
 }) {
+	const isSourceMode = viewMode === "source";
+	const label = isSourceMode ? "Edit rich text" : "Edit source";
+	const Icon = isSourceMode ? MingcuteTextLine : MingcuteCodeLine;
 	return (
-		<fieldset
+		<Button
 			data-editor-view-toggle
-			aria-label="Editor view"
-			className="flex shrink-0 items-center rounded-sm bg-muted"
+			variant="ghost"
+			size="icon-sm"
+			aria-label={label}
+			title={label}
+			onClick={() => onChange(isSourceMode ? "rich" : "source")}
 		>
-			{sourceModeOptions.map(({ value, label, Icon }) => (
-				<button
-					key={value}
-					type="button"
-					aria-label={label}
-					aria-pressed={viewMode === value}
-					title={label}
-					onClick={() => onChange(value)}
-					className={cn(
-						"inline-flex h-6 cursor-pointer items-center justify-center gap-1 rounded-sm border text-[10px] font-medium",
-						compact ? "w-6 px-0" : "px-1.5",
-						viewMode === value
-							? "border-border bg-background text-foreground"
-							: "border-transparent text-muted-foreground hover:bg-background/60 hover:text-foreground",
-					)}
-				>
-					<Icon className="pointer-events-none size-3" />
-					{compact ? null : <span>{label}</span>}
-				</button>
-			))}
-		</fieldset>
+			<Icon className="size-4" />
+		</Button>
 	);
 }
 
