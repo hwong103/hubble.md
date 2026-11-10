@@ -39,7 +39,12 @@ type DeleteDeps = {
 	refreshFileList: () => Promise<void>;
 	loadPath: (
 		path: string,
-		options: { history: "none"; launchExternal: false; tab?: TabId },
+		options: {
+			history: "none";
+			launchExternal: false;
+			recordRecent?: boolean;
+			tab?: TabId;
+		},
 	) => Promise<void>;
 	syncPins: () => Promise<void>;
 	stopTitleRenames: (path: string) => void;
@@ -145,6 +150,7 @@ export function createDeleteActions(deps: DeleteDeps) {
 				await deps.loadPath(deletion.reopenPath, {
 					history: "none",
 					launchExternal: false,
+					recordRecent: false,
 					tab: restoredTab ?? undefined,
 				});
 			}
@@ -255,6 +261,7 @@ export function createDeleteActions(deps: DeleteDeps) {
 				await deps.loadPath(survivorPath, {
 					history: "none",
 					launchExternal: false,
+					recordRecent: false,
 					tab: survivor,
 				});
 			}

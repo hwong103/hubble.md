@@ -5,7 +5,13 @@ import { pathEquals } from "../lib/filePath";
 import { isVirtualPath, newTabPath } from "../lib/newTabPage";
 import type { loadPath as loadDocument } from "./actions";
 import { dropHistory, seedHistory } from "./history";
-import { appStore, emptyDoc, viewerStore, workspaceStore } from "./state";
+import {
+	appStore,
+	emptyDoc,
+	recordRecentlyOpenedDocument,
+	viewerStore,
+	workspaceStore,
+} from "./state";
 import { tabsStore } from "./tabStore";
 import {
 	findTabByPath,
@@ -60,6 +66,7 @@ export function createTabActions({
 				history: "none",
 				missing: "silent",
 				launchExternal: false,
+				recordRecent: false,
 				tab: active,
 			});
 		}
@@ -85,10 +92,9 @@ export function createTabActions({
 		}
 		const next = withBackgroundTab(tabs, path);
 		const mintedId = next.order.find((id) => !tabs.byId[id]);
-		appStore.set((state) => ({
-			...state,
-			tabs: next,
-		}));
+		appStore.set((state) =>
+			recordRecentlyOpenedDocument({ ...state, tabs: next }, path),
+		);
 		if (mintedId) seedHistory(mintedId, path);
 	}
 
@@ -108,6 +114,7 @@ export function createTabActions({
 		await loadPath(tab.path, {
 			history: "none",
 			launchExternal: false,
+			recordRecent: false,
 			tab: id,
 		});
 	}
@@ -149,6 +156,7 @@ export function createTabActions({
 			await loadPath(nextPath, {
 				history: "none",
 				launchExternal: false,
+				recordRecent: false,
 				tab: next,
 			});
 			return;

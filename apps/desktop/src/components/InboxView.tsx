@@ -12,6 +12,7 @@ import {
 } from "react";
 import MingcuteFolderLine from "~icons/mingcute/folder-line";
 import MingcuteFoldersLine from "~icons/mingcute/folders-line";
+import MingcuteHistoryLine from "~icons/mingcute/history-line";
 import MingcuteInboxLine from "~icons/mingcute/inbox-line";
 import { desktopApi } from "../desktopApi";
 import {
@@ -29,7 +30,12 @@ import {
 import { type NotePreview, notePreview } from "../lib/titleGeneration";
 import { cn } from "../lib/utils";
 import type { SidebarView } from "../store/persistence";
-import { currentPathStore, type FileEntry, viewerStore } from "../store/state";
+import {
+	currentPathStore,
+	type FileEntry,
+	type RecentlyOpenedDocument,
+	viewerStore,
+} from "../store/state";
 
 type InboxNote = { path: string; modifiedAt: number };
 // Arrow keys keep the compact overlay open; clicks let it close.
@@ -97,6 +103,15 @@ export function SidebarViewToggle({
 			title: useCommandShortcutLabel("Inbox", "app.show-inbox"),
 			Icon: MingcuteInboxLine,
 		},
+		{
+			value: "recentlyOpened",
+			label: "Recently opened",
+			title: useCommandShortcutLabel(
+				"Recently opened",
+				"app.show-recently-opened",
+			),
+			Icon: MingcuteHistoryLine,
+		},
 	] as const;
 	return (
 		<fieldset
@@ -144,16 +159,7 @@ export function InboxView({
 	actions: InboxActions;
 }) {
 	const [menuPath, setMenuPath] = useState<string | null>(null);
-	const navRef = useRef<HTMLElement>(null);
 
-	// Reveal the open note when the inbox appears or another note opens,
-	// without taking focus.
-	useEffect(() => {
-		if (!currentPath) return;
-		navRef.current
-			?.querySelector('[aria-current="page"]')
-			?.scrollIntoView({ block: "nearest" });
-	}, [currentPath]);
 	// Only list files Hubble can create as notes. Mtimes are stored in seconds.
 	const notes = new Map(
 		files
@@ -184,30 +190,11 @@ export function InboxView({
 	];
 	useLoadPreviews([...pinned, ...recent], currentPath);
 	const order = groups.flatMap((group) => group.items.map((note) => note.path));
-
-	// Arrow keys move through notes in list order and open each one.
-	function handleKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
-		const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
-		if (!step || event.metaKey || event.ctrlKey || event.altKey) return;
-		event.preventDefault();
-		const focused =
-			(document.activeElement as HTMLElement | null)?.dataset.inboxPath ??
-			currentPath;
-		const index = focused ? order.indexOf(focused) : -1;
-		const next = index === -1 ? order[0] : order[index + step];
-		if (!next || next === focused) return;
-		// Keep the compact overlay open so the arrows can keep walking the list.
-		onOpen(next, { keepSidebarOpen: true });
-		focusRow(event.currentTarget, next);
-	}
-
-	// The sidebar focuses this nav (e.g. Cmd+Shift+I); hand focus to the open note.
-	function handleFocus(event: FocusEvent<HTMLElement>) {
-		if (event.target !== event.currentTarget) return;
-		const target =
-			currentPath && order.includes(currentPath) ? currentPath : order[0];
-		if (target) focusRow(event.currentTarget, target);
-	}
+	const { navRef, handleKeyDown, handleFocus } = useSidebarListFocus(
+		order,
+		currentPath,
+		onOpen,
+	);
 
 	if (groups.length === 0) {
 		return (
@@ -238,11 +225,85 @@ export function InboxView({
 							<InboxRow
 								key={note.path}
 								path={note.path}
-								modifiedAt={note.modifiedAt}
-								workspacePath={workspacePath}
+								timestamp={note.modifiedAt}
+								location={inboxNoteLocation(note.path, workspacePath)}
+								fullPath={inboxNoteFullPath(note.path, workspacePath)}
 								isCurrent={note.path === currentPath}
 								isPinned={pinnedSet.has(note.path)}
 								menuOpen={menuPath === note.path}
+								actions={actions}
+								onOpen={onOpen}
+								setMenuPath={setMenuPath}
+							/>
+						))}
+					</ul>
+				</section>
+			))}
+		</nav>
+	);
+}
+
+export function RecentlyOpenedView({
+	documents,
+	currentPath,
+	onOpen,
+	actions,
+}: {
+	documents: RecentlyOpenedDocument[];
+	currentPath: string | null;
+	onOpen: OpenNote;
+	actions: InboxActions;
+}) {
+	const [menuPath, setMenuPath] = useState<string | null>(null);
+
+	const groups = groupInboxItems(documents, (document) => document.openedAt);
+	const previewNotes = documents.map((document) => ({
+		path: document.path,
+		modifiedAt: document.openedAt,
+	}));
+	useLoadPreviews(previewNotes, currentPath);
+	const order = documents.map((document) => document.path);
+	const { navRef, handleKeyDown, handleFocus } = useSidebarListFocus(
+		order,
+		currentPath,
+		onOpen,
+	);
+
+	if (documents.length === 0) {
+		return (
+			<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 text-center text-xs text-muted-foreground">
+				<MingcuteHistoryLine className="size-5" />
+				<p>Documents you open will appear here.</p>
+			</div>
+		);
+	}
+
+	return (
+		<nav
+			ref={navRef}
+			aria-label="Recently opened files"
+			data-sidebar-nav
+			tabIndex={-1}
+			onKeyDown={handleKeyDown}
+			onFocus={handleFocus}
+			className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 [--muted-warm:oklch(from_var(--muted-foreground)_l_calc(c+0.02)_75)]"
+		>
+			{groups.map((group) => (
+				<section key={group.label} aria-label={group.label}>
+					<h2 className="px-2 pt-4 pb-1.5 text-[13px] font-bold text-sidebar-foreground">
+						{group.label}
+					</h2>
+					<ul>
+						{group.items.map((document) => (
+							<InboxRow
+								key={document.path}
+								path={document.path}
+								timestamp={document.openedAt}
+								location={recentlyOpenedLocation(document)}
+								fullPath={document.path}
+								isCurrent={document.path === currentPath}
+								isPinned={false}
+								menuOpen={menuPath === document.path}
 								actions={actions}
 								onOpen={onOpen}
 								setMenuPath={setMenuPath}
@@ -262,8 +323,9 @@ export function InboxView({
  */
 const InboxRow = memo(function InboxRow({
 	path,
-	modifiedAt,
-	workspacePath,
+	timestamp,
+	location,
+	fullPath,
 	isCurrent,
 	isPinned,
 	menuOpen,
@@ -272,8 +334,9 @@ const InboxRow = memo(function InboxRow({
 	setMenuPath,
 }: {
 	path: string;
-	modifiedAt: number;
-	workspacePath: string;
+	timestamp: number;
+	location: string;
+	fullPath: string;
 	isCurrent: boolean;
 	isPinned: boolean;
 	menuOpen: boolean;
@@ -293,10 +356,6 @@ const InboxRow = memo(function InboxRow({
 		: entry
 			? "Preview unavailable"
 			: "";
-	const relativePath = relativeWorkspacePath(path, workspacePath);
-	const folder = dirname(relativePath);
-	// Lead with the workspace folder so top-level notes still show a dir.
-	const fullPath = `${basename(workspacePath)}/${relativePath}`;
 	return (
 		<li
 			// Separators inset to the text, hidden beside a highlighted row.
@@ -345,7 +404,7 @@ const InboxRow = memo(function InboxRow({
 				</span>
 				<span className="flex min-w-0 gap-1.5 text-xs">
 					<span className="shrink-0 tabular-nums text-sidebar-foreground">
-						{inboxDateLabel(modifiedAt)}
+						{inboxDateLabel(timestamp)}
 					</span>
 					<span className="truncate text-(--row-muted)">
 						{isCurrent ? (
@@ -365,9 +424,7 @@ const InboxRow = memo(function InboxRow({
 					title={fullPath}
 				>
 					<MingcuteFolderLine className="pointer-events-none size-3.5 shrink-0" />
-					<span className="truncate">
-						{folder ? basename(folder) : basename(workspacePath)}
-					</span>
+					<span className="truncate">{location}</span>
 				</span>
 			</button>
 			{hovered || menuOpen ? (
@@ -477,10 +534,84 @@ function LiveText({
 	return live ?? empty;
 }
 
+function useSidebarListFocus(
+	order: string[],
+	currentPath: string | null,
+	onOpen: OpenNote,
+) {
+	const navRef = useRef<HTMLElement>(null);
+
+	// Reveal the open note when the view appears or another note opens,
+	// without taking focus.
+	useEffect(() => {
+		if (!currentPath) return;
+		navRef.current
+			?.querySelector('[aria-current="page"]')
+			?.scrollIntoView({ block: "nearest" });
+	}, [currentPath]);
+
+	// Arrow keys move through notes in list order and open each one.
+	function handleKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+		const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+		if (!step || event.metaKey || event.ctrlKey || event.altKey) return;
+		event.preventDefault();
+		const focused =
+			(document.activeElement as HTMLElement | null)?.dataset.inboxPath ??
+			currentPath;
+		const index = focused ? order.indexOf(focused) : -1;
+		const next = index === -1 ? order[0] : order[index + step];
+		if (!next || next === focused) return;
+		// Keep the compact overlay open so the arrows can keep walking the list.
+		onOpen(next, { keepSidebarOpen: true });
+		focusRow(event.currentTarget, next);
+	}
+
+	// The sidebar focuses this nav (e.g. Cmd+Shift+I); hand focus to the open note.
+	function handleFocus(event: FocusEvent<HTMLElement>) {
+		if (event.target !== event.currentTarget) return;
+		const target =
+			currentPath && order.includes(currentPath) ? currentPath : order[0];
+		if (target) focusRow(event.currentTarget, target);
+	}
+
+	return { navRef, handleKeyDown, handleFocus };
+}
+
 function focusRow(nav: HTMLElement, path: string) {
 	const row = [...nav.querySelectorAll<HTMLElement>("[data-inbox-path]")].find(
 		(element) => element.dataset.inboxPath === path,
 	);
 	row?.focus({ preventScroll: true });
 	row?.scrollIntoView({ block: "nearest" });
+}
+
+function inboxNoteLocation(path: string, workspacePath: string) {
+	const relativePath = relativeWorkspacePath(path, workspacePath);
+	const folder = dirname(relativePath);
+	return folder ? basename(folder) : basename(workspacePath);
+}
+
+function inboxNoteFullPath(path: string, workspacePath: string) {
+	const relativePath = relativeWorkspacePath(path, workspacePath);
+	return `${basename(workspacePath)}/${relativePath}`;
+}
+
+function recentlyOpenedLocation(document: RecentlyOpenedDocument) {
+	if (!document.workspacePath) {
+		return dirname(document.path) ?? document.path;
+	}
+	const relativePath = relativeWorkspacePath(
+		document.path,
+		document.workspacePath,
+	);
+	if (relativePath === document.path) {
+		return dirname(document.path) ?? document.path;
+	}
+	const folder = dirname(relativePath);
+	const workspace = document.workspacePath.replace(/[\\/]+$/, "");
+	const workspaceName = basename(workspace);
+	const parent = dirname(workspace);
+	const parentName = parent ? basename(parent) : "";
+	const context = parentName ? `${parentName}/${workspaceName}` : workspaceName;
+	return folder ? `${context}/${folder}` : context;
 }

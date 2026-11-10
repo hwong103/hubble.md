@@ -478,7 +478,10 @@ function App() {
 				handleExternalFileChange(currentPath, nextContent);
 			} catch {
 				if (viewerStore.get().currentPath !== currentPath) return;
-				await loadPath(currentPath, { launchExternal: false });
+				await loadPath(currentPath, {
+					launchExternal: false,
+					recordRecent: false,
+				});
 			}
 		};
 
@@ -584,6 +587,7 @@ function App() {
 				},
 				"app.show-folders": () => showSidebarView("folders"),
 				"app.show-inbox": () => showSidebarView("inbox"),
+				"app.show-recently-opened": () => showSidebarView("recentlyOpened"),
 			};
 			for (const [id, handler] of Object.entries(handlers) as [
 				AppCommandId,

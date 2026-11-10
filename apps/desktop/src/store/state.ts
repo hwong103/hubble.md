@@ -3,7 +3,11 @@ import type { ReviewThread } from "@hubble.md/ui";
 import { store } from "@simplestack/store";
 import type { SpellcheckState, TelemetryConsent } from "../desktopApi/types";
 import type { FileAction } from "../externalFileChange";
-import type { FileKind } from "../lib/filePath";
+import {
+	type FileKind,
+	hasDocumentExtension,
+	pathEquals,
+} from "../lib/filePath";
 import { localStoragePersist } from "../lib/localStoragePersist";
 import {
 	type DesktopState,
@@ -26,6 +30,12 @@ export type FolderEntry = {
 	modified_at: number;
 };
 
+export type RecentlyOpenedDocument = {
+	path: string;
+	workspacePath: string | null;
+	openedAt: number;
+};
+
 type ViewerStatus = "idle" | "loading" | "ready" | "error";
 export type ViewMode = "rich" | "source";
 type ExternalChange =
@@ -45,6 +55,7 @@ type DocumentState = {
 const NO_CONFLICT: ExternalChange = { kind: "none" };
 
 export const MAX_RECENT = 10;
+export const MAX_RECENTLY_OPENED = 100;
 export const LOADING_DELAY_MS = 150;
 export const MAX_HISTORY = 50;
 
@@ -123,6 +134,25 @@ export function isInWorkspace(
 	return path.startsWith(normalizedWorkspace);
 }
 
+export function recordRecentlyOpenedDocument(
+	state: DesktopState,
+	path: string,
+	openedAt = Date.now(),
+): DesktopState {
+	if (!hasDocumentExtension(path)) return state;
+	const workspacePath = [
+		state.workspace.workspacePath,
+		...state.workspace.recentWorkspaces,
+	].find((workspace) => isInWorkspace(path, workspace));
+	const recentlyOpened = [
+		{ path, workspacePath: workspacePath ?? null, openedAt },
+		...state.recentlyOpened.filter(
+			(document) => !pathEquals(document.path, path),
+		),
+	].slice(0, MAX_RECENTLY_OPENED);
+	return { ...state, recentlyOpened };
+}
+
 export function withOpenedDoc(
 	state: DesktopState,
 	path: string,
@@ -171,6 +201,7 @@ export const telemetryConsentStore = store<TelemetryConsent | null>(null);
 export const launchFileSettledStore = store(false);
 
 export const workspaceStore = appStore.select("workspace");
+export const recentlyOpenedStore = appStore.select("recentlyOpened");
 export const viewerStore = appStore.select("document");
 export const uiStore = appStore.select("ui");
 

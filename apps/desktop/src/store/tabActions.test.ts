@@ -18,8 +18,10 @@ describe("desktop tabs", () => {
 		await openTabForPath("/workspace/c.md");
 		expect(canGoBack()).toBe(false);
 		if (!firstTabId) throw new Error("expected a tab");
+		const recentlyOpened = appStore.get().recentlyOpened;
 		await activateTab(firstTabId);
 		expect(canGoBack()).toBe(true);
+		expect(appStore.get().recentlyOpened).toEqual(recentlyOpened);
 	});
 
 	it("opens blank tabs that a picked file replaces in place", async () => {
@@ -134,6 +136,7 @@ describe("desktop tabs", () => {
 		const paths = first.tabsStore
 			.get()
 			.order.map((id) => first.tabsStore.get().byId[id].path);
+		const recentlyOpened = first.appStore.get().recentlyOpened;
 		const [, written] = vi.mocked(localStorage.setItem).mock.lastCall ?? [];
 		const second = await loadStoreActions(api, written);
 		await second.restoreTabs();
@@ -147,6 +150,7 @@ describe("desktop tabs", () => {
 		expect(active && second.tabsStore.get().byId[active].path).toBe(
 			"/workspace/b.md",
 		);
+		expect(second.appStore.get().recentlyOpened).toEqual(recentlyOpened);
 		await second.openTabForPath("/workspace/d.md");
 		expect(new Set(second.tabsStore.get().order).size).toBe(4);
 	});
@@ -355,6 +359,9 @@ describe("desktop tabs", () => {
 		expect(activeTabId).toBe(first);
 		expect(order[1] && byId[order[1]]?.path).toBe("/workspace/b.md");
 		expect(viewerStore.get().currentPath).toBe("/workspace/a.md");
+		expect(
+			appStore.get().recentlyOpened.map((document) => document.path),
+		).toEqual(["/workspace/b.md", "/workspace/a.md"]);
 		expect(api.readFileText).toHaveBeenCalledTimes(1);
 	});
 

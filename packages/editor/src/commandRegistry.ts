@@ -154,6 +154,11 @@ export const commandRegistry = {
 		label: "Show Inbox",
 		isEnabled: hasWorkspace,
 	},
+	"app.show-recently-opened": {
+		defaultBinding: null,
+		label: "Show Recently Opened",
+		isEnabled: always,
+	},
 	"app.expand-all-folders": {
 		defaultBinding: null,
 		label: "Expand All Folders",

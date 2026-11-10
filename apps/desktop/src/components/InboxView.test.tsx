@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { viewerStore } from "../store/state";
-import { InboxView } from "./InboxView";
+import { InboxView, RecentlyOpenedView } from "./InboxView";
 
 const api = vi.hoisted(() => ({ readNotePreviews: vi.fn() }));
 vi.mock("../desktopApi", () => ({ desktopApi: api }));
@@ -116,6 +116,77 @@ describe("inbox previews", () => {
 		await render();
 		expect(container.textContent).toContain("Last batch");
 		expect(api.readNotePreviews).toHaveBeenCalledTimes(2);
+		expect(container.textContent).toContain("Preview unavailable");
+	});
+
+	it("shows recently opened documents across workspaces in open order", async () => {
+		const documents = [
+			{
+				path: "/projects/alpha/docs/index.md",
+				workspacePath: "/projects/alpha/docs",
+				openedAt: Date.now(),
+			},
+			{
+				path: "/projects/beta/docs/index.md",
+				workspacePath: "/projects/beta/docs",
+				openedAt: Date.now() - 60_000,
+			},
+		];
+		api.readNotePreviews.mockResolvedValue(
+			Object.fromEntries(
+				documents.map((document) => [
+					document.path,
+					{ title: "Index", description: null },
+				]),
+			),
+		);
+
+		await act(async () =>
+			root.render(
+				<RecentlyOpenedView
+					documents={documents}
+					currentPath={null}
+					onOpen={() => {}}
+					actions={{}}
+				/>,
+			),
+		);
+
+		const rows = [
+			...container.querySelectorAll<HTMLElement>("[data-inbox-path]"),
+		];
+		expect(rows.map((row) => row.dataset.inboxPath)).toEqual(
+			documents.map((document) => document.path),
+		);
+		expect(container.textContent).toContain("alpha/docs");
+		expect(container.textContent).toContain("beta/docs");
+		expect(rows[0]?.querySelector("span[title]")?.getAttribute("title")).toBe(
+			documents[0].path,
+		);
+	});
+
+	it("keeps unreadable recently opened files visible", async () => {
+		const document = {
+			path: "/projects/alpha/docs/missing.md",
+			workspacePath: "/projects/alpha",
+			openedAt: Date.now(),
+		};
+		api.readNotePreviews.mockResolvedValue({ [document.path]: null });
+
+		await act(async () =>
+			root.render(
+				<RecentlyOpenedView
+					documents={[document]}
+					currentPath={null}
+					onOpen={() => {}}
+					actions={{}}
+				/>,
+			),
+		);
+
+		expect(
+			container.querySelector(`[data-inbox-path="${document.path}"]`),
+		).not.toBeNull();
 		expect(container.textContent).toContain("Preview unavailable");
 	});
 });

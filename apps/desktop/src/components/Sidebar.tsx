@@ -32,11 +32,12 @@ import {
 } from "../store/actions";
 import {
 	currentPathStore,
+	recentlyOpenedStore,
 	sidebarOpenStore,
 	sidebarViewStore,
 	workspaceStore,
 } from "../store/state";
-import { InboxView } from "./InboxView";
+import { InboxView, RecentlyOpenedView } from "./InboxView";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 
 export type DesktopSidebarFocus = {
@@ -72,6 +73,14 @@ const fileActions = {
 		void deleteSidebarItems([{ kind: "file", path }]),
 };
 
+const recentFileActions = {
+	onOpenFileInNewTab: fileActions.onOpenFileInNewTab,
+	onOpenFileInDefaultApp: fileActions.onOpenFileInDefaultApp,
+	onRevealFile: fileActions.onRevealFile,
+	revealLabel: fileActions.revealLabel,
+	onCopyFilePath: fileActions.onCopyFilePath,
+};
+
 export function Sidebar({
 	footer,
 	onFocusedItemChange,
@@ -83,13 +92,14 @@ export function Sidebar({
 	const sidebarOpen = useStoreValue(sidebarOpenStore);
 	const currentPath = useStoreValue(currentPathStore);
 	const sidebarView = useStoreValue(sidebarViewStore);
+	const recentlyOpened = useStoreValue(recentlyOpenedStore);
 	const compact = useCompactWindow();
 	const { workspacePath, files, folders, pinnedNotes, sortMode } = workspace;
 	const pinnedSet = new Set(pinnedNotes);
 
 	if (!sidebarOpen && !compact) return null;
 	const collapseSidebar = () => setSidebarOpen(false);
-	if (!workspacePath) {
+	if (!workspacePath && sidebarView !== "recentlyOpened") {
 		return (
 			<SidebarFrame onCollapse={collapseSidebar}>
 				<div className="flex min-h-0 flex-1 flex-col items-start justify-center gap-3 px-3 text-sm">
@@ -113,12 +123,14 @@ export function Sidebar({
 	}
 
 	const relativePath = (absPath: string) => {
+		if (!workspacePath) return absPath;
 		const prefix = workspacePath.endsWith("/")
 			? workspacePath
 			: `${workspacePath}/`;
 		return absPath.startsWith(prefix) ? absPath.slice(prefix.length) : absPath;
 	};
 	const absolutePath = (displayPath: string | null) => {
+		if (!workspacePath) return displayPath ?? "";
 		if (!displayPath) return workspacePath;
 		const normalized = displayPath.replace(/\/+$/, "");
 		return workspacePath.endsWith("/")
@@ -211,7 +223,7 @@ export function Sidebar({
 				void moveSidebarItems(items, absolutePath(targetFolderId))
 			}
 		>
-			{sidebarView === "inbox" ? (
+			{sidebarView === "inbox" && workspacePath ? (
 				<InboxView
 					workspacePath={workspacePath}
 					files={files}
@@ -219,6 +231,13 @@ export function Sidebar({
 					currentPath={currentPath ?? null}
 					onOpen={selectFile}
 					actions={fileActions}
+				/>
+			) : sidebarView === "recentlyOpened" ? (
+				<RecentlyOpenedView
+					documents={recentlyOpened}
+					currentPath={currentPath ?? null}
+					onOpen={selectFile}
+					actions={recentFileActions}
 				/>
 			) : null}
 		</SharedSidebar>

@@ -6,6 +6,8 @@ import {
 	emptyDoc,
 	type FileEntry,
 	type FolderEntry,
+	MAX_RECENTLY_OPENED,
+	type RecentlyOpenedDocument,
 	type SortMode,
 } from "./state";
 import {
@@ -28,7 +30,7 @@ type WorkspaceState = {
 type DocumentState = ReturnType<typeof emptyDoc>;
 
 export type TerminalPosition = "bottom" | "right";
-export type SidebarView = "folders" | "inbox";
+export type SidebarView = "folders" | "inbox" | "recentlyOpened";
 
 type UiState = {
 	sidebarOpen: boolean;
@@ -50,6 +52,7 @@ type SettingsState = {
 export type CodeFileOpenMode = "hubble" | "default-app";
 
 export type DesktopState = {
+	recentlyOpened: RecentlyOpenedDocument[];
 	workspace: WorkspaceState;
 	document: DocumentState;
 	tabs: TabsState;
@@ -59,6 +62,7 @@ export type DesktopState = {
 };
 
 type Persisted = {
+	recentlyOpened?: unknown;
 	tabSessions?: Record<string, TabSession>;
 	workspace?: {
 		workspacePath?: string | null;
@@ -107,18 +111,56 @@ function hydrateWorkspace(ws: Persisted["workspace"]): WorkspaceState {
 	};
 }
 
+function hydrateRecentlyOpened(value: unknown): RecentlyOpenedDocument[] {
+	if (!Array.isArray(value)) return [];
+	const seen = new Set<string>();
+	const documents: RecentlyOpenedDocument[] = [];
+	for (const entry of value) {
+		if (
+			typeof entry !== "object" ||
+			entry === null ||
+			!("path" in entry) ||
+			typeof entry.path !== "string" ||
+			!entry.path ||
+			!("workspacePath" in entry) ||
+			(entry.workspacePath !== null &&
+				typeof entry.workspacePath !== "string") ||
+			!("openedAt" in entry) ||
+			typeof entry.openedAt !== "number" ||
+			!Number.isFinite(entry.openedAt)
+		) {
+			continue;
+		}
+		const key = entry.path.toLocaleLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		documents.push({
+			path: entry.path,
+			workspacePath: entry.workspacePath,
+			openedAt: entry.openedAt,
+		});
+		if (documents.length === MAX_RECENTLY_OPENED) break;
+	}
+	return documents;
+}
+
 export function getInitialState(): DesktopState {
 	const p = readStorage<Persisted>(STORAGE_KEY);
 	const workspace = hydrateWorkspace(p?.workspace);
 	const tabSessions = readTabSessions(p?.tabSessions);
 	return {
+		recentlyOpened: hydrateRecentlyOpened(p?.recentlyOpened),
 		workspace,
 		tabSessions,
 		document: emptyDoc(),
 		tabs: tabsFromSession(tabSessions[workspace.workspacePath ?? ""]),
 		ui: {
 			sidebarOpen: p?.ui?.sidebarOpen ?? false,
-			sidebarView: p?.ui?.sidebarView === "inbox" ? "inbox" : "folders",
+			sidebarView:
+				p?.ui?.sidebarView === "inbox" ||
+				p?.ui?.sidebarView === "recentlyOpened"
+					? p.ui.sidebarView
+					: "folders",
 			isSwitcherOpen: false,
 			isTerminalOpen: p?.ui?.isTerminalOpen ?? false,
 			terminalPosition:
@@ -154,6 +196,7 @@ export function getInitialState(): DesktopState {
 
 export function serialize(state: DesktopState): Persisted {
 	return {
+		recentlyOpened: state.recentlyOpened,
 		tabSessions: {
 			...state.tabSessions,
 			[state.workspace.workspacePath ?? ""]: tabSession(state.tabs),

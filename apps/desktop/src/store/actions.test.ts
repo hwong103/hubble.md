@@ -2037,6 +2037,77 @@ describe("desktop loadPath", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("records successful document opens across workspaces in recency order", async () => {
+		const api = createDesktopApi();
+		const { appStore, loadPath } = await loadStoreActions(api);
+		appStore.set((state) => ({
+			...state,
+			workspace: {
+				...state.workspace,
+				workspacePath: "/projects/alpha",
+				recentWorkspaces: ["/projects/alpha", "/projects/beta"],
+			},
+		}));
+
+		await loadPath("/projects/beta/docs/plan.md");
+		await loadPath("/projects/alpha/docs/plan.md");
+		await loadPath("/projects/beta/docs/plan.md");
+		await loadPath("/projects/alpha/app.ts");
+
+		expect(appStore.get().recentlyOpened).toEqual([
+			{
+				path: "/projects/beta/docs/plan.md",
+				workspacePath: "/projects/beta",
+				openedAt: expect.any(Number),
+			},
+			{
+				path: "/projects/alpha/docs/plan.md",
+				workspacePath: "/projects/alpha",
+				openedAt: expect.any(Number),
+			},
+		]);
+		const { STORAGE_KEY } = await import("./persistence");
+		expect(localStorage.setItem).toHaveBeenLastCalledWith(
+			STORAGE_KEY,
+			expect.stringContaining('"recentlyOpened"'),
+		);
+	});
+
+	it("does not record a document that fails to open", async () => {
+		const api = createDesktopApi();
+		api.readFileText.mockRejectedValue(new Error("ENOENT"));
+		const { appStore, loadPath } = await loadStoreActions(api);
+
+		await loadPath("/workspace/missing.md");
+
+		expect(appStore.get().recentlyOpened).toEqual([]);
+	});
+
+	it("hydrates valid recently opened documents and ignores malformed entries", async () => {
+		const api = createDesktopApi();
+		const { recentlyOpenedStore } = await loadStoreActions(
+			api,
+			JSON.stringify({
+				recentlyOpened: [
+					{
+						path: "/projects/alpha/docs/plan.md",
+						workspacePath: "/projects/alpha",
+						openedAt: 123,
+					},
+					{ path: 42, workspacePath: null, openedAt: 456 },
+				],
+			}),
+		);
+
+		expect(recentlyOpenedStore.get()).toEqual([
+			{
+				path: "/projects/alpha/docs/plan.md",
+				workspacePath: "/projects/alpha",
+				openedAt: 123,
+			},
+		]);
+	});
+
 	it("tracks back and forward history through successful opens", async () => {
 		const api = createDesktopApi();
 		api.pathExists.mockResolvedValue(true);

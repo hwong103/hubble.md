@@ -86,6 +86,7 @@ import {
 	lastSeenVersionStore,
 	MAX_RECENT,
 	pendingTerminalCommandStore,
+	recordRecentlyOpenedDocument,
 	reviewThreadsStore,
 	type SortMode,
 	shortcutBindingsStore,
@@ -531,6 +532,8 @@ type LoadPathOptions = {
 	missing?: "toast" | "silent";
 	/** `false` keeps code files in Hubble regardless of the default-app preference. */
 	launchExternal?: boolean;
+	/** `false` reloads an existing document without treating it as newly opened. */
+	recordRecent?: boolean;
 	/** Defaults to the active tab. */
 	tab?: TabTarget;
 };
@@ -1087,7 +1090,11 @@ export async function renameMarkdownFile(path: string, nextName: string) {
 		await refreshFileList();
 		if (isCurrentFile) {
 			// Path rewrite already updated history; reload content without a new visit.
-			await loadPath(nextPath, { history: "none", launchExternal: false });
+			await loadPath(nextPath, {
+				history: "none",
+				launchExternal: false,
+				recordRecent: false,
+			});
 		}
 		return nextPath;
 	} catch (err) {
@@ -1464,9 +1471,12 @@ const { run: loadInternalPath, invalidate: invalidateLoadPath } = takeLatest(
 			if (currentPath && !pathEquals(currentPath, path)) {
 				titleManager.stop(currentPath);
 			}
-			appStore.set((state) =>
-				withOpenedDoc(state, path, content, options?.tab),
-			);
+			appStore.set((state) => {
+				const opened = withOpenedDoc(state, path, content, options?.tab);
+				return isVirtualPath(path) || options?.recordRecent === false
+					? opened
+					: recordRecentlyOpenedDocument(opened, path);
+			});
 			if (historyMode === "push") pushHistory(path);
 		} catch (err) {
 			if (isStale()) return;
@@ -1502,6 +1512,7 @@ const { run: loadInternalPath, invalidate: invalidateLoadPath } = takeLatest(
 					void loadPath(next, {
 						history: "none",
 						launchExternal: false,
+						recordRecent: false,
 						tab: fallback ?? undefined,
 					});
 				}

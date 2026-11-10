@@ -349,6 +349,12 @@ function defineCommands(
 			() => void toggleSidebarView("inbox"),
 		),
 		fromRegistry(
+			"app.show-recently-opened",
+			"View",
+			["history", "documents", "folders", "sidebar"],
+			() => void toggleSidebarView("recentlyOpened"),
+		),
+		fromRegistry(
 			"app.toggle-terminal",
 			"View",
 			["shell", "console", "command line"],
