@@ -208,6 +208,7 @@ export const uiStore = appStore.select("ui");
 export const workspacePathStore = workspaceStore.select("workspacePath");
 export const recentWorkspacesStore = workspaceStore.select("recentWorkspaces");
 export const currentPathStore = viewerStore.select("currentPath");
+export const viewModeStore = viewerStore.select("viewMode");
 export const sidebarOpenStore = uiStore.select("sidebarOpen");
 export const sidebarViewStore = uiStore.select("sidebarView");
 export const switcherOpenStore = uiStore.select("isSwitcherOpen");

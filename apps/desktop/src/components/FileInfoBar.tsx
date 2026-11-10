@@ -22,6 +22,7 @@ import MingcuteExternalLinkLine from "~icons/mingcute/external-link-line";
 import MingcuteFolderOpenLine from "~icons/mingcute/folder-open-line";
 import MingcuteMore2Line from "~icons/mingcute/more-2-line";
 import MingcuteTerminalLine from "~icons/mingcute/terminal-line";
+import MingcuteTextLine from "~icons/mingcute/text-line";
 import { desktopApi } from "../desktopApi";
 import type { AgentClient } from "../desktopApi/types";
 import { isChangelogPath } from "../lib/changelogNote";
@@ -39,6 +40,7 @@ import {
 } from "../lib/filePath";
 import { useCompactWindow } from "../lib/layout";
 import { revealFileLabel } from "../lib/revealFile";
+import { cn } from "../lib/utils";
 import {
 	deleteSidebarItems,
 	goBack,
@@ -55,7 +57,8 @@ import {
 	isInWorkspace,
 	reviewThreadsStore,
 	titleGenerationPreviewStore,
-	viewerStore,
+	type ViewMode,
+	viewModeStore,
 	workspacePathStore,
 } from "../store/state";
 import { ClaudeLogo, CodexLogo } from "./AgentLogos";
@@ -75,6 +78,7 @@ export function FileInfoBar({
 }) {
 	const workspacePath = useStoreValue(workspacePathStore);
 	const currentPath = useStoreValue(currentPathStore);
+	const viewMode = useStoreValue(viewModeStore);
 	const titlePreview = useStoreValue(titleGenerationPreviewStore);
 	const titlePath = filePathForTitlePreview(currentPath, titlePreview);
 	const reviewThreads = useStoreValue(reviewThreadsStore);
@@ -101,6 +105,8 @@ export function FileInfoBar({
 			? dirname(relativeWorkspacePath(titlePath, workspacePath ?? null))
 			: null;
 	const actionPath = currentPath && !isChangelog ? currentPath : null;
+	const showEditorViewToggle =
+		actionPath !== null && hasMarkdownExtension(actionPath);
 	const comments: ReviewCommentSummaryProps | null =
 		currentPath && hasMarkdownExtension(currentPath)
 			? {
@@ -166,8 +172,16 @@ export function FileInfoBar({
 				<div className="flex items-center gap-1" style={noDragStyle}>
 					<div data-file-info-actions className="flex items-center gap-1">
 						{comments ? <ReviewCommentSummary {...comments} /> : null}
+						{showEditorViewToggle ? (
+							<SourceModeToggle
+								viewMode={viewMode}
+								onChange={setViewerMode}
+								compact={compact}
+							/>
+						) : null}
 						<ActionsMenu
 							path={actionPath}
+							viewMode={viewMode}
 							canDelete={Boolean(
 								actionPath && isInWorkspace(actionPath, workspacePath ?? null),
 							)}
@@ -195,6 +209,58 @@ export function FileInfoBar({
 				</div>
 			</div>
 		</div>
+	);
+}
+
+const sourceModeOptions = [
+	{
+		value: "rich",
+		label: "Rich text",
+		Icon: MingcuteTextLine,
+	},
+	{
+		value: "source",
+		label: "Markdown",
+		Icon: MingcuteCodeLine,
+	},
+] as const;
+
+export function SourceModeToggle({
+	viewMode,
+	onChange,
+	compact = false,
+}: {
+	viewMode: ViewMode;
+	onChange: (viewMode: ViewMode) => void;
+	compact?: boolean;
+}) {
+	return (
+		<fieldset
+			data-editor-view-toggle
+			aria-label="Editor view"
+			className="flex shrink-0 items-center rounded-sm bg-muted"
+		>
+			{sourceModeOptions.map(({ value, label, Icon }) => (
+				<button
+					key={value}
+					type="button"
+					aria-label={label}
+					aria-pressed={viewMode === value}
+					title={label}
+					onClick={() => onChange(value)}
+					className={cn(
+						"inline-flex h-6 cursor-pointer items-center justify-center gap-1 rounded-sm border text-[10px] font-medium",
+						compact ? "w-6 px-0" : "px-1.5",
+						viewMode === value
+							? "border-border bg-background text-foreground"
+							: "border-transparent text-muted-foreground hover:bg-background/60 hover:text-foreground",
+					)}
+				>
+					<Icon className="pointer-events-none size-3" />
+					{compact ? null : <span>{label}</span>}
+				</button>
+			))}
+		</fieldset>
 	);
 }
 
@@ -230,14 +296,15 @@ function NavigationControls() {
 
 function ActionsMenu({
 	path,
+	viewMode,
 	canDelete,
 	workspacePath,
 }: {
 	path: string | null;
+	viewMode: ViewMode;
 	canDelete: boolean;
 	workspacePath: string | null;
 }) {
-	const { viewMode } = useStoreValue(viewerStore);
 	const isSourceMode = viewMode === "source";
 	const sourceModeLabel = path
 		? isSourceMode
