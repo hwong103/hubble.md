@@ -102,7 +102,11 @@ type WindowBounds = {
 const isDev = !app.isPackaged || process.env.HUBBLE_DESKTOP_FORCE_DEV === "1";
 const { autoUpdater } = electronUpdater;
 const devAppName = isDev ? process.env.HUBBLE_DESKTOP_DEV_APP_NAME : undefined;
-const appName = devAppName ?? "Hubble";
+const packagedAppName = app.isPackaged
+	? path.basename(process.execPath)
+	: undefined;
+const appName = devAppName ?? packagedAppName ?? "Hubble";
+const isPersonalBuild = appName === "Hubble Personal";
 const debugPort = process.env.HUBBLE_DESKTOP_DEBUG_PORT ?? "9222";
 // Agents and e2e runs set this so the app runs without ever showing a window
 // or taking focus from whatever the user is working in. They drive the
@@ -110,7 +114,8 @@ const debugPort = process.env.HUBBLE_DESKTOP_DEBUG_PORT ?? "9222";
 const launchInBackground =
 	isDev && process.env.HUBBLE_DESKTOP_BACKGROUND === "1";
 const updateFeedUrl = process.env.HUBBLE_DESKTOP_UPDATE_URL;
-const supportsAutoUpdates = !isDev && process.platform === "darwin";
+const supportsAutoUpdates =
+	!isDev && !isPersonalBuild && process.platform === "darwin";
 const updateCheckErrorMessage =
 	"Couldn't check for updates. Try again shortly.";
 // Check every 4 hours after the initial packaged-app update check.

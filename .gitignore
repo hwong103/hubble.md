@@ -23,6 +23,7 @@ build/
 out/
 /release/
 apps/*/release/
+apps/*/release-personal/
 packages/*/release/
 coverage/
 **/.astro/

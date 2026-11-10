@@ -19,6 +19,7 @@
 		"dev:debug": "HUBBLE_DESKTOP_ENABLE_CDP=1 node scripts/dev.mjs",
 		"build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && electron-vite build",
 		"bundle:mac": "pnpm build && electron-builder --mac",
+		"bundle:personal:mac": "pnpm build && electron-builder --config electron-builder.personal.cjs --mac",
 		"bundle:win": "pnpm build && electron-builder --win nsis --x64",
 		"bundle:win:arm64": "pnpm build && electron-builder --win nsis --arm64",
 		"bundle:linux": "pnpm build && electron-builder --linux",
