@@ -15,6 +15,7 @@ import {
 } from "../store/actions";
 import {
 	recentWorkspacesStore,
+	sidebarViewStore,
 	switcherOpenStore,
 	workspacePathStore,
 } from "../store/state";
@@ -23,11 +24,12 @@ export function WorkspaceSwitcher() {
 	const workspacePath = useStoreValue(workspacePathStore);
 	const recentWorkspaces = useStoreValue(recentWorkspacesStore);
 	const open = useStoreValue(switcherOpenStore);
+	const sidebarView = useStoreValue(sidebarViewStore);
 	const title = useCommandShortcutLabel(
 		workspacePath ? tildePath(workspacePath) : "",
 		"app.open-recent",
 	);
-	if (!workspacePath) return null;
+	if (!workspacePath || sidebarView === "recentlyOpened") return null;
 	const workspaceName = basename(workspacePath);
 	const others = recentWorkspaces.filter((p) => p !== workspacePath);
 	const duplicateNames = duplicateBasenames([workspacePath, ...others]);

@@ -151,4 +151,39 @@ describe("WorkspaceSwitcher", () => {
 			document.body.querySelector('[role="menuitem"][title="/workspace-a"]'),
 		);
 	});
+
+	it("shows the folder picker except in recently opened", async () => {
+		const { appStore, WorkspaceSwitcher, sidebarViewStore } =
+			await loadWorkspaceSwitcher();
+
+		appStore.set((state) => ({
+			...state,
+			workspace: {
+				...state.workspace,
+				workspacePath: "/workspace-a",
+			},
+			ui: {
+				...state.ui,
+				sidebarView: "folders",
+			},
+		}));
+
+		await act(async () => {
+			root.render(<WorkspaceSwitcher />);
+			await flush();
+		});
+		expect(container.textContent).toContain("workspace-a");
+
+		await act(async () => {
+			sidebarViewStore.set("recentlyOpened");
+			await flush();
+		});
+		expect(container.textContent).toBe("");
+
+		await act(async () => {
+			sidebarViewStore.set("inbox");
+			await flush();
+		});
+		expect(container.textContent).toContain("workspace-a");
+	});
 });
