@@ -67,7 +67,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.13.0
+          node-version: 22.23.4
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
@@ -127,7 +127,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.13.0
+          node-version: 22.23.4
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
@@ -179,7 +179,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.13.0
+          node-version: 22.23.4
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
