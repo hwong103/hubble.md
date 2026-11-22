@@ -35,5 +35,8 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.4"
+	},
+	"engines": {
+		"node": "^22.13.0 || >=24.0.0"
 	}
 }

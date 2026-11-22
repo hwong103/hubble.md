@@ -33,9 +33,9 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@tiptap/core": "^3.4.3",
-		"@tiptap/extension-list": "^3.4.2",
-		"@tiptap/pm": "^3.3.0",
+		"@tiptap/core": "3.35.0",
+		"@tiptap/extension-list": "3.35.0",
+		"@tiptap/pm": "3.35.0",
 		"hast-util-from-html": "^2.0.3",
 		"remark-gfm": "^4.0.1",
 		"remark-parse": "^11.0.0",
@@ -48,6 +48,6 @@
 		"@types/mdast": "^4.0.4",
 		"@types/unist": "^3.0.3",
 		"typescript": "~5.8.3",
-		"vitest": "^3.2.4"
+		"vitest": "4.1.12"
 	}
 }

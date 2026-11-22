@@ -1,0 +1,37 @@
+---
+interface Props {
+	name: string;
+	class?: string;
+}
+
+const { name, class: className } = Astro.props;
+
+const icons: Record<string, string> = {
+	"mingcute:selector-vertical-line":
+		'<path fill="currentColor" d="M10.707 13.293 12 14.586l1.293-1.293a1 1 0 0 1 1.414 1.414l-2 2a1 1 0 0 1-1.414 0l-2-2a1 1 0 1 1 1.414-1.414m0-2.586L12 9.414l1.293 1.293a1 1 0 0 0 1.414-1.414l-2-2a1 1 0 0 0-1.414 0l-2 2a1 1 0 0 0 1.414 1.414"/>',
+	"mingcute:edit-line":
+		'<path fill="currentColor" d="M13 3a1 1 0 0 1 .117 1.993L13 5H5v14h14v-8a1 1 0 0 1 1.993-.117L21 11v8a2 2 0 0 1-1.85 1.995L19 21H5a2 2 0 0 1-1.995-1.85L3 19V5a2 2 0 0 1 1.85-1.995L5 3zm6.243.343a1 1 0 0 1 1.497 1.32l-.083.095-9.9 9.899a1 1 0 0 1-1.497-1.32l.083-.094z"/>',
+	"mingcute:sort-descending-line":
+		'<path fill="currentColor" d="M18 4a1 1 0 0 1 1 1v12.414l1.121-1.121a1 1 0 0 1 1.415 1.414l-2.829 2.828a1 1 0 0 1-1.414 0l-2.828-2.828a1 1 0 1 1 1.414-1.414L17 17.414V5a1 1 0 0 1 1-1m-7 14a1 1 0 0 1 .117 1.993L11 20H4a1 1 0 0 1-.117-1.993L4 18zm2-7a1 1 0 0 1 .117 1.993L13 13H4a1 1 0 0 1-.117-1.993L4 11zm0-7a1 1 0 1 1 0 2H4a1 1 0 0 1 0-2z"/>',
+	"mingcute:more-2-line":
+		'<path fill="currentColor" d="M12 16.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3m0-6a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3m0-6a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3"/>',
+	"mingcute:link-line":
+		'<path fill="currentColor" d="M10.232 10.231a5 5 0 0 1 6.89-.172l.181.172 2.828 2.829a5 5 0 0 1-6.89 7.243l-.18-.172-2.122-2.122a1 1 0 0 1 1.32-1.497l.094.083 2.122 2.122a3 3 0 0 0 4.377-4.1l-.135-.143-2.828-2.828a3 3 0 0 0-4.243 0 1 1 0 0 1-1.414-1.415M3.868 3.867a5 5 0 0 1 6.89-.172l.181.172L13.06 5.99a1 1 0 0 1-1.32 1.497l-.094-.083-2.121-2.121A3 3 0 0 0 5.147 9.38l.135.144 2.829 2.829a3 3 0 0 0 4.242 0 1 1 0 1 1 1.415 1.414 5 5 0 0 1-6.89.172l-.182-.172-2.828-2.829a5 5 0 0 1 0-7.07Z"/>',
+	"mingcute:copy-2-line":
+		'<path fill="currentColor" d="M9 2a2 2 0 0 0-2 2v2h2V4h11v11h-2v2h2a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM4 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zm0 2h11v11H4z"/>',
+};
+
+const markup = icons[name];
+
+if (!markup) {
+	throw new Error(`Unknown local icon: ${name}`);
+}
+---
+
+<svg
+	class={className}
+	viewBox="0 0 24 24"
+	aria-hidden="true"
+	focusable="false"
+	set:html={markup}
+/>

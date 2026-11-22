@@ -21,3 +21,57 @@ allowBuilds:
   msw: true
   sharp: true
   node-pty: true
+
+overrides:
+  '@babel/core': 7.29.6
+  '@hono/node-server': 2.1.6
+  '@modelcontextprotocol/sdk': 1.32.2
+  '@xmldom/xmldom@0.8': 0.8.15
+  '@xmldom/xmldom@0.9': 0.9.12
+  baseline-browser-mapping: 2.11.0
+  body-parser: 2.4.0
+  browserslist: 4.29.6
+  'brace-expansion@1': 1.1.22
+  'brace-expansion@2': 2.1.7
+  'brace-expansion@3': 5.0.13
+  'brace-expansion@4': 5.0.13
+  'brace-expansion@5': 5.0.13
+  devalue: 5.9.3
+  fast-uri: 3.1.9
+  form-data: 4.0.6
+  hono: 4.13.20
+  js-yaml: 4.3.2
+  markdown-it: 14.3.3
+  minimatch: 11.0.9
+  path-to-regexp: 8.4.0
+  ip-address: 10.7.4
+  esbuild: 0.28.2
+  proxy-addr: 2.0.8
+  nanoid: 3.3.18
+  'picomatch@2': 2.3.2
+  'picomatch@4': 4.0.5
+  postcss: 8.5.33
+  postcss-selector-parser: 7.1.6
+  prosemirror-changeset: 2.4.6
+  prosemirror-commands: 1.7.2
+  prosemirror-dropcursor: 1.8.4
+  prosemirror-gapcursor: 1.4.1
+  prosemirror-history: 1.5.2
+  prosemirror-model: 1.25.13
+  prosemirror-transform: 1.12.7
+  prosemirror-view: 1.42.3
+  qs: 6.16.1
+  rollup: 4.59.0
+  sharp: 0.35.5
+  smol-toml: 1.9.0
+  source-map-js: 1.2.2
+  'svgo@3': 3.3.5
+  svgo: 4.1.0
+  tar: 7.5.23
+  'undici@6': 6.29.1
+  'undici@7': 7.30.2
+  ws: 8.21.0
+  zod: 4.6.7
+
+minimumReleaseAgeExclude:
+  - hono@4.13.20

@@ -24,11 +24,11 @@ class MockFitAddon {
 }
 
 vi.mock("@xterm/xterm", () => ({
-	Terminal: vi.fn(() => new MockTerminal()),
+	Terminal: MockTerminal,
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
-	FitAddon: vi.fn(() => new MockFitAddon()),
+	FitAddon: MockFitAddon,
 }));
 
 type TerminalEventCallback = () => void;
